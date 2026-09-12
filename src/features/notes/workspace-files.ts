@@ -1,0 +1,218 @@
+import { WorkspaceError } from './workspace-error'
+import type { Note, WorkspaceFolder } from './types'
+
+export interface LocalFileHandle {
+  kind: 'file'
+  name: string
+  getFile: () => Promise<File>
+  createWritable?: () => Promise<{
+    write: (content: string) => Promise<void>
+    close: () => Promise<void>
+    abort: () => Promise<void>
+  }>
+}
+
+export interface LocalDirectoryHandle {
+  kind: 'directory'
+  name: string
+  values: () => AsyncIterable<LocalDirectoryHandle | LocalFileHandle>
+  getFileHandle?: (
+    name: string,
+    options?: { create?: boolean },
+  ) => Promise<LocalFileHandle>
+  getDirectoryHandle?: (
+    name: string,
+    options?: { create?: boolean },
+  ) => Promise<LocalDirectoryHandle>
+}
+
+declare global {
+  interface Window {
+    showDirectoryPicker?: (options: {
+      mode: 'read' | 'readwrite'
+    }) => Promise<LocalDirectoryHandle>
+  }
+}
+
+export interface FileSource {
+  handle?: LocalFileHandle
+  fileName: string
+  baseline: Pick<Note, 'title' | 'content'>
+}
+
+export interface ImportedFolder {
+  notes: Note[]
+  folders: WorkspaceFolder[]
+  sources: Map<string, FileSource>
+}
+
+const MAX_FILE_BYTES = 2 * 1024 * 1024
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024
+const MAX_ENTRIES = 10000
+const MARKDOWN_EXTENSION = /\.(md|markdown)$/i
+const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules'])
+
+export function parseMarkdownFile(
+  name: string,
+  text: string,
+): Pick<Note, 'title' | 'content'> {
+  const heading = /^# ([^\r\n]+)\r?\n(?:\r?\n)?/.exec(text)
+  return {
+    title: heading?.[1]?.trim() || name.replace(MARKDOWN_EXTENSION, ''),
+    content: heading ? text.slice(heading[0].length) : text,
+  }
+}
+
+export async function readMarkdownFile(file: File) {
+  if (!MARKDOWN_EXTENSION.test(file.name))
+    throw new WorkspaceError(
+      'Selecione um arquivo Markdown (.md ou .markdown).',
+    )
+  if (file.size > MAX_FILE_BYTES)
+    throw new WorkspaceError(
+      `O arquivo "${file.name}" ultrapassa o limite de 2 MB.`,
+    )
+  return parseMarkdownFile(file.name, await file.text())
+}
+
+function finishDirectoryImport(result: ImportedFolder): ImportedFolder {
+  if (!result.notes.length)
+    throw new WorkspaceError(
+      'Esta pasta não contém arquivos Markdown (.md ou .markdown). Selecione outra pasta.',
+    )
+  const foldersById = new Map(
+    result.folders.map((folder) => [folder.id, folder]),
+  )
+  const includedFolders = new Set<string>()
+  for (const note of result.notes) {
+    let folderId = note.folderId
+    while (folderId && !includedFolders.has(folderId)) {
+      includedFolders.add(folderId)
+      folderId = foldersById.get(folderId)?.parentId
+    }
+  }
+  return {
+    ...result,
+    folders: result.folders.filter((folder) => includedFolders.has(folder.id)),
+  }
+}
+
+export async function importDirectory(
+  handle: LocalDirectoryHandle,
+): Promise<ImportedFolder> {
+  const result: ImportedFolder = { notes: [], folders: [], sources: new Map() }
+  let entries = 0
+  let totalBytes = 0
+  async function visit(
+    directory: LocalDirectoryHandle,
+    path: string,
+    parentId?: string,
+  ) {
+    if (++entries > MAX_ENTRIES)
+      throw new WorkspaceError(
+        'Esta pasta tem arquivos e subpastas demais. Abra uma pasta menor.',
+      )
+    const folder: WorkspaceFolder = {
+      id: crypto.randomUUID(),
+      name: directory.name,
+      ...(parentId ? { parentId } : {}),
+    }
+    result.folders.push(folder)
+    for await (const entry of directory.values()) {
+      if (++entries > MAX_ENTRIES)
+        throw new WorkspaceError(
+          'Esta pasta tem arquivos e subpastas demais. Abra uma pasta menor.',
+        )
+      if (entry.kind === 'directory') {
+        if (!IGNORED_DIRECTORIES.has(entry.name))
+          await visit(entry, `${path}/${entry.name}`, folder.id)
+      } else if (MARKDOWN_EXTENSION.test(entry.name)) {
+        const file = await entry.getFile()
+        totalBytes += file.size
+        if (totalBytes > MAX_TOTAL_BYTES)
+          throw new WorkspaceError(
+            'Os arquivos Markdown ultrapassam o limite total de 20 MB. Abra uma pasta menor.',
+          )
+        const parsed = await readMarkdownFile(file)
+        const note: Note = {
+          id: crypto.randomUUID(),
+          ...parsed,
+          folderId: folder.id,
+          sourcePath: `${path}/${entry.name}`,
+        }
+        result.notes.push(note)
+        result.sources.set(note.id, {
+          handle: entry,
+          fileName: entry.name,
+          baseline: parsed,
+        })
+      }
+    }
+  }
+  await visit(handle, handle.name)
+  return finishDirectoryImport(result)
+}
+
+export async function importFileList(files: File[]): Promise<ImportedFolder> {
+  const result: ImportedFolder = { notes: [], folders: [], sources: new Map() }
+  const foldersByPath = new Map<string, string>()
+  let totalBytes = 0
+  if (files.length > MAX_ENTRIES)
+    throw new WorkspaceError(
+      'Esta pasta tem arquivos e subpastas demais. Abra uma pasta menor.',
+    )
+  for (const file of files) {
+    const path = file.webkitRelativePath || file.name
+    const parts = path.split('/')
+    if (parts.some((part) => IGNORED_DIRECTORIES.has(part))) continue
+    if (!MARKDOWN_EXTENSION.test(file.name)) continue
+    let parentId: string | undefined
+    for (let index = 0; index < parts.length - 1; index++) {
+      const folderPath = parts.slice(0, index + 1).join('/')
+      let id = foldersByPath.get(folderPath)
+      if (!id) {
+        id = crypto.randomUUID()
+        foldersByPath.set(folderPath, id)
+        result.folders.push({
+          id,
+          name: parts[index]!,
+          ...(parentId ? { parentId } : {}),
+        })
+      }
+      parentId = id
+    }
+    totalBytes += file.size
+    if (totalBytes > MAX_TOTAL_BYTES)
+      throw new WorkspaceError(
+        'Os arquivos Markdown ultrapassam o limite total de 20 MB. Abra uma pasta menor.',
+      )
+    const parsed = await readMarkdownFile(file)
+    const note: Note = {
+      id: crypto.randomUUID(),
+      ...parsed,
+      sourcePath: path,
+      ...(parentId ? { folderId: parentId } : {}),
+    }
+    result.notes.push(note)
+    result.sources.set(note.id, { fileName: file.name, baseline: parsed })
+  }
+  return finishDirectoryImport(result)
+}
+
+export function downloadFile(name: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export function markdownFilename(title: string) {
+  return `${
+    title
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 100) || 'documento-sem-titulo'
+  }.md`
+}

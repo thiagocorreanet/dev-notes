@@ -1,0 +1,194 @@
+import assert from 'node:assert/strict'
+import { get } from 'node:http'
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  stat,
+  symlink,
+} from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
+import type { TestContext } from 'node:test'
+import { startLocalServer } from './server.ts'
+
+interface DocumentResponse {
+  path: string
+  raw: string
+  version: string
+}
+
+async function fixture(t: TestContext) {
+  const directory = await mkdtemp(join(tmpdir(), 'devnotes-local-test-'))
+  const dist = join(directory, 'dist')
+  await mkdir(dist)
+  await writeFile(join(dist, 'index.html'), '<html>DevNotes</html>')
+  const path = join(directory, 'a space & ação #1.md')
+  await writeFile(path, '# Guide\r\n\r\nOriginal\r\n', { mode: 0o640 })
+  const service = await startLocalServer({ dist })
+  t.after(async () => {
+    await new Promise<void>((resolve) => {
+      service.server.close(() => resolve())
+      service.server.closeAllConnections()
+    })
+    await rm(directory, { recursive: true, force: true })
+  })
+  const endpoint = (file = path) =>
+    `${service.origin}/api/document?${new URLSearchParams({ file }).toString()}`
+  const launch = async (file = path) => {
+    const response = await fetch(`${service.origin}/api/launch`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${service.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ file }),
+    })
+    assert.equal(response.status, 200)
+    const { url } = (await response.json()) as { url: string }
+    const entry = await fetch(url, { redirect: 'manual' })
+    assert.equal(entry.status, 303)
+    const cookie = entry.headers.get('set-cookie')!.split(';')[0]!
+    return { cookie, url, location: entry.headers.get('location')! }
+  }
+  const save = (cookie: string, version: string, raw: string) =>
+    fetch(endpoint(), {
+      method: 'PUT',
+      headers: {
+        Cookie: cookie,
+        Origin: service.origin,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ version, raw }),
+    })
+  return { ...service, directory, path, endpoint, launch, save }
+}
+
+void test('launches with the requested URL, reads and saves the original, and preserves no-op bytes and permissions', async (t) => {
+  const f = await fixture(t)
+  const { cookie, location } = await f.launch()
+  const url = new URL(location)
+  assert.equal(url.pathname, '/')
+  assert.equal(url.searchParams.get('ws'), '1')
+  assert.equal(url.searchParams.get('file'), f.path)
+  assert.equal([...url.searchParams].length, 2)
+  assert.match(await (await fetch(location)).text(), /DevNotes/)
+  const document = (await (
+    await fetch(f.endpoint(), { headers: { Cookie: cookie } })
+  ).json()) as DocumentResponse
+  assert.equal(document.raw, '# Guide\r\n\r\nOriginal\r\n')
+  assert.equal(
+    (await f.save(cookie, document.version, document.raw)).status,
+    200,
+  )
+  assert.equal(await readFile(f.path, 'utf8'), document.raw)
+  const changed = '# Guide\r\n\r\nSaved on disk\r\n'
+  assert.equal((await f.save(cookie, document.version, changed)).status, 200)
+  assert.equal(await readFile(f.path, 'utf8'), changed)
+  assert.equal((await stat(f.path)).mode & 0o777, 0o640)
+})
+
+void test('blocks unauthenticated, cross-origin, unknown-path, and reused-ticket access', async (t) => {
+  const f = await fixture(t)
+  assert.equal((await fetch(f.endpoint())).status, 401)
+  assert.equal(
+    (
+      await fetch(`${f.origin}/api/launch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: f.path }),
+      })
+    ).status,
+    401,
+  )
+  const { cookie, url } = await f.launch()
+  assert.equal((await fetch(url, { redirect: 'manual' })).status, 401)
+  const headers = { Cookie: cookie, Origin: 'https://example.com' }
+  assert.equal((await fetch(f.endpoint(), { headers })).status, 403)
+  const invalidHostStatus = await new Promise<number | undefined>(
+    (resolve, reject) => {
+      get(
+        f.endpoint(),
+        { headers: { Cookie: cookie, Host: 'evil.example' } },
+        (response) => {
+          response.resume()
+          resolve(response.statusCode)
+        },
+      ).on('error', reject)
+    },
+  )
+  assert.equal(invalidHostStatus, 403)
+  const other = join(f.directory, 'private.md')
+  await writeFile(other, 'Private')
+  assert.equal(
+    (await fetch(f.endpoint(other), { headers: { Cookie: cookie } })).status,
+    403,
+  )
+  assert.equal(
+    (
+      await fetch(f.endpoint(), {
+        method: 'PUT',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+    ).status,
+    403,
+  )
+  assert.equal((await fetch(`${f.origin}/%2e%2e%2fprivate.md`)).status, 403)
+})
+
+void test('rejects external changes and serializes competing saves without overwriting the winner', async (t) => {
+  const f = await fixture(t)
+  const { cookie } = await f.launch()
+  const read = async () =>
+    (await (
+      await fetch(f.endpoint(), { headers: { Cookie: cookie } })
+    ).json()) as DocumentResponse
+  const original = await read()
+  await writeFile(f.path, 'External')
+  assert.equal(
+    (await f.save(cookie, original.version, 'Unsaved draft')).status,
+    409,
+  )
+  assert.equal(await readFile(f.path, 'utf8'), 'External')
+  const disk = await read()
+  const responses = await Promise.all([
+    f.save(cookie, disk.version, 'First'),
+    f.save(cookie, disk.version, 'Second'),
+  ])
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 409],
+  )
+  assert.ok(['First', 'Second'].includes(await readFile(f.path, 'utf8')))
+})
+
+void test('refuses oversized and invalid UTF-8 files and changed symlink targets', async (t) => {
+  const f = await fixture(t)
+  const { cookie } = await f.launch()
+  const original = (await (
+    await fetch(f.endpoint(), { headers: { Cookie: cookie } })
+  ).json()) as DocumentResponse
+  assert.equal(
+    (await f.save(cookie, original.version, 'x'.repeat(2 * 1024 * 1024 + 1)))
+      .status,
+    413,
+  )
+  await writeFile(f.path, Buffer.from([0xff, 0xfe]))
+  assert.equal(
+    (await fetch(f.endpoint(), { headers: { Cookie: cookie } })).status,
+    415,
+  )
+  const other = join(f.directory, 'other.md')
+  await writeFile(other, 'Private')
+  await rm(f.path)
+  await symlink(other, f.path)
+  assert.equal(
+    (await fetch(f.endpoint(), { headers: { Cookie: cookie } })).status,
+    403,
+  )
+  assert.equal(await readFile(other, 'utf8'), 'Private')
+})
