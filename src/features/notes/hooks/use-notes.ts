@@ -3,7 +3,11 @@ import type { WorkspaceAction } from '../workspace-actions'
 import { remapNoteLinks } from '../note-links'
 import { WorkspaceError } from '../workspace-error'
 import { useRef, useState } from 'react'
-import { loadWorkspace, persistWorkspace } from '../workspace-storage'
+import {
+  loadWorkspace,
+  persistWorkspace,
+  WORKSPACE_KEY,
+} from '../workspace-storage'
 import type { Note, Workspace, WorkspaceFolder } from '../types'
 
 export function useNotes() {
@@ -150,7 +154,24 @@ export function useNotes() {
     )
   }
 
+  function replaceFromBackup(
+    workspace: Workspace,
+    expectedStored: string | null,
+  ) {
+    if (localStorage.getItem(WORKSPACE_KEY) !== expectedStored)
+      throw new WorkspaceError(
+        'O espaço de trabalho mudou em outra aba. Abra o backup novamente para conferir a importação.',
+      )
+    if (!persistWorkspace(workspace))
+      throw new WorkspaceError(
+        'Não há espaço disponível para importar o backup. Seus documentos atuais foram mantidos.',
+      )
+    current.current = workspace
+    setState({ workspace, error: null })
+  }
+
   return {
+    replaceFromBackup,
     runAction,
     restoreRevision,
     suppressedExampleIds: state.workspace.suppressedExampleIds ?? [],

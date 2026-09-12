@@ -1,3 +1,5 @@
+import { BackupDialog } from './backup-dialog'
+import { SaveDestination } from './save-destination'
 import { useAppearance } from '../hooks/use-appearance'
 import { useReadingPosition } from '../hooks/use-reading-position'
 import { motionEnabled } from '../appearance'
@@ -262,6 +264,7 @@ export function NotesPage() {
     | 'tasks'
     | 'local-folder'
     | 'appearance'
+    | 'backup'
     | null
   >(null)
   const [taskTarget, setTaskTarget] = useState<NoteTask | null>(null)
@@ -297,6 +300,7 @@ export function NotesPage() {
   }
 
   const commandActions: Record<EditorCommandId, () => void> = {
+    'import-backup': () => showPanel('backup'),
     appearance: () => showPanel('appearance'),
     focus: () => setFocusMode((current) => !current),
     tasks: () => showPanel('tasks'),
@@ -406,6 +410,13 @@ export function NotesPage() {
       }}
     >
       <div className={dark ? 'dark' : undefined} data-focus-mode={focusMode}>
+        {panel === 'backup' && (
+          <BackupDialog
+            onImport={workspace.importBackup}
+            onDownloadCurrent={workspace.downloadCurrentBackup}
+            onClose={() => setPanel(null)}
+          />
+        )}
         <MarkdownDropZone
           busy={workspace.busy}
           onFiles={workspace.openDroppedFiles}
@@ -448,6 +459,7 @@ export function NotesPage() {
                       void workspace.openFolder()
                     },
                     onSaveWorkspace: workspace.saveWorkspace,
+                    onImportBackup: () => showPanel('backup'),
                   }}
                 />
               }
@@ -659,6 +671,19 @@ export function NotesPage() {
                     onClose={workspace.closeTab}
                   />
                 </div>
+                {!workspace.localDocuments.loading && (
+                  <SaveDestination
+                    note={activeNote}
+                    original={workspace.localDocuments.has(activeNote.id)}
+                    temporary={isDraft || !isSaved}
+                    connectedPath={
+                      workspace.localFolder.files.find(
+                        (file) => file.noteId === activeNote.id,
+                      )?.path
+                    }
+                    onOpenFolder={() => showPanel('local-folder')}
+                  />
+                )}
                 {workspace.localDocuments.recovery && (
                   <DraftRecovery
                     draft={workspace.localDocuments.recovery}

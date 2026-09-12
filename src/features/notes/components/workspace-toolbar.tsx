@@ -1,5 +1,6 @@
 import {
   FilePlus2,
+  FolderInput,
   FolderOpen,
   FolderPlus,
   ListCollapse,
@@ -25,10 +26,21 @@ interface WorkspaceToolbarProps {
   onCollapseAll: () => void
   onOpenFolder: () => void
   onSaveWorkspace: () => void
+  onImportBackup?: () => void
 }
 
 export function WorkspaceToolbar(props: WorkspaceToolbarProps) {
   const actions = [
+    ...(props.onImportBackup
+      ? [
+          {
+            label: 'Importar backup',
+            description: 'Mesclar ou restaurar um backup JSON',
+            icon: FolderInput,
+            onClick: props.onImportBackup,
+          },
+        ]
+      : []),
     {
       label: 'Novo documento',
       description: 'Criar documento temporário (ainda não salvo)',
