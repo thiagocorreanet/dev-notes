@@ -153,7 +153,7 @@ npm run test:local     # Local HTTP and filesystem tests
 npm run build          # Production files in dist/
 ```
 
-GitHub Actions runs the same check command for pushes and pull requests. For a web deployment, host `dist/` on a static host with HTTPS. The optional local file service should remain on the user's computer.
+GitHub Actions runs these checks for pushes and pull requests, followed by browser workflows in Chromium and Firefox. For a web deployment, host `dist/` on a static host with HTTPS. The optional local file service should remain on the user's computer.
 
 ```text
 src/components/ui/    Official shadcn/ui components
@@ -171,6 +171,12 @@ The [user guide](docs/guide.md) covers editing, storage limits, local-folder con
 Bug reports, documentation fixes, and pull requests are welcome. Include a small Markdown example when reporting an editing issue, along with your browser and how you opened the document. For substantial changes, open an issue first so the behavior can be discussed before implementation.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and UI conventions.
+
+## Releases and repository automation
+
+The [Release workflow](https://github.com/thiagocorreanet/dev-notes/actions/workflows/release.yml) prepares web and Linux archives with checksums. Pushing a tag that matches the package version creates a draft release after all checks pass. A manual run builds downloadable artifacts without publishing a release. The Linux package includes the compiled app and requires Node.js 24.
+
+Bug report forms collect browser and operating system information, which the issue workflow uses to apply labels. See the [automation guide](docs/automation.md) for browser tests, release steps, and workflow permissions.
 
 ## Visual identity
 

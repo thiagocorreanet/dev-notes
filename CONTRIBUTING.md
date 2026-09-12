@@ -37,7 +37,7 @@ Run the complete check before submitting:
 npm run check
 ```
 
-It checks formatting, ESLint, Vitest workflows, local HTTP/filesystem tests, TypeScript, and the production build. Add meaningful coverage for changed behavior, especially persistence, Markdown conversion, and file conflict handling.
+It checks formatting, ESLint, Vitest workflows, local HTTP/filesystem tests, automation tests, TypeScript, and the production build. Add meaningful coverage for changed behavior, especially persistence, Markdown conversion, and file conflict handling.
 
 For interface changes, verify keyboard navigation, focus, light and dark themes, and narrow screens. Include screenshots in the pull request when they make the change easier to review. Use sample content rather than personal documents or credentials.
 
@@ -48,3 +48,5 @@ The Linux installer changes per-user file associations. Tests should use tempora
 Include the browser, operating system, steps to reproduce, and expected behavior. Explain whether the document came from the browser workspace, an import, a connected folder, or the local launcher. A small Markdown example is useful for editing and rendering issues.
 
 Remove private document content, API keys, launch tickets, and session credentials before sharing logs or screenshots.
+
+For changes to editing or file workflows, also run `npx playwright install chromium firefox` and `npm run test:e2e` after the build. See [repository automation](docs/automation.md) for browser reports and release packaging.

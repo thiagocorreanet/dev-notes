@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible problem in DevNotes.
+title: '[Bug]: '
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or a commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, Windows, macOS, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options: [Chrome, Chromium, Firefox, Safari, Edge, Other]
+    validations:
+      required: true
+  - type: input
+    id: browser-version
+    attributes:
+      label: Browser version
+  - type: dropdown
+    id: source
+    attributes:
+      label: How was the document opened?
+      options:
+        - Browser workspace
+        - File or folder import
+        - Drag and drop
+        - Connected local folder
+        - Linux file association or launcher
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include a small Markdown example when possible. Remove private content, keys, and launch tickets.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or logs
+      description: Include only information you are comfortable publishing.
