@@ -82,7 +82,7 @@ These controls use official shadcn/ui Dialog, Select, Switch, Alert, Button, and
 
 On desktop, drag the divider between the sidebar and the document to adjust the sidebar width. The divider uses the official shadcn/ui Resizable component: it supports mouse and touch input, keyboard arrows when focused, and a double-click to restore the default width. Width is constrained to 260 to 480 px while reserving at least 360 px for the document. The preferred width is saved locally and restored when reopening the sidebar or reloading the app. Browser storage failures do not prevent resizing. On mobile, the sidebar continues to open as a sheet.
 
-The sidebar toolbar provides seven actions using official shadcn/ui buttons and tooltips. The descriptions below use English; their interface labels appear in Brazilian Portuguese:
+The sidebar toolbar provides document and backup actions using official shadcn/ui buttons and tooltips. The descriptions below use English; their interface labels appear in Brazilian Portuguese:
 
 | Action             | Behavior                                                                                                               |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
@@ -93,8 +93,9 @@ The sidebar toolbar provides seven actions using official shadcn/ui buttons and 
 | Collapse all       | Close every folder, including nested folders, and clear the search so the collapsed tree remains visible.              |
 | Open folder        | Import a local folder's hierarchy and `.md` / `.markdown` files as workspace copies.                                   |
 | Save workspace     | Keep temporary documents, save the workspace locally, and download a JSON backup containing all documents and folders. |
+| Import backup      | Preview a JSON workspace archive, then merge it into a new folder or restore the browser workspace.                    |
 
-Use **Open Markdown file** in the sidebar footer or command palette to open a `.md` or `.markdown` document. The app only opens Markdown files and folders containing Markdown; JSON backup import is not available. The existing JSON export contains document content and folder structure for external archival, not browser file permissions.
+Use **Open Markdown file** in the sidebar footer or command palette to open a `.md` or `.markdown` document. This file picker opens Markdown files. Use Import backup in the sidebar or command palette for JSON archives. Backup import offers a preview and merge or restore choices; it restores browser copies without granting file permissions. See [backup recovery](../README.md#backup-recovery-and-save-destinations) for limits and replacement behavior.
 
 The sidebar nests folders and documents beneath the workspace root, with indentation and guide lines for each level. Folders appear before documents, sorted by name within each level. Expand or collapse a folder with a click, Enter, or Space. The folder-plus action beside a folder selects it and opens the form to create a subfolder; empty folders remain visible. Select the workspace root to create top-level items.
 

@@ -4,9 +4,11 @@
 
 The Quality workflow runs for pull requests, pushes to `main`, and manual dispatches. Its code job checks formatting, lint, types, editor tests, local file-service tests, automation tests, and the production build. The browser job tests that build with Chromium and Firefox. Each test owns a temporary directory and a local service on an automatically assigned port.
 
-Browser coverage includes original-file saves, recovery after reload, external edit conflicts, reading position, minimap navigation, focus and appearance settings, dropped copies, narrow screens, and folder navigation. These tests do not use your installed service, browser profile, or personal documents.
+Browser coverage includes original-file saves, recovery after reload, external edit conflicts, reading position, minimap navigation, focus and appearance settings, dropped copies, narrow screens, folder navigation, and backup preview, merge, and restore. These tests do not use your installed service, browser profile, or personal documents.
 
-New commits cancel earlier Quality runs for the same pull request. The final `Required checks` job succeeds only when code and browser jobs both pass. Maintainers can select it as a required status check in repository rules; adding a workflow alone does not enable branch protection.
+New commits cancel earlier Quality runs for the same pull request. The final `Required checks` job succeeds only when code and browser jobs both pass.
+
+The upstream repository enforces the [Protect main ruleset](https://github.com/thiagocorreanet/dev-notes/rules/23058247) on its default branch. Changes require a pull request, resolved review conversations, an up-to-date branch, and a successful `Required checks` result from GitHub Actions. Force pushes and branch deletion are blocked, with no bypass actors. Review approval is optional so a sole maintainer can merge after CI passes. These settings live on GitHub; forks must configure their own ruleset.
 
 Reports, failure screenshots, and traces are retained as Actions artifacts for seven days. The traces contain only temporary test data, including short-lived access to a service that is destroyed after the test.
 

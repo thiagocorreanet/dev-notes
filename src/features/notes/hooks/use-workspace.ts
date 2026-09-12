@@ -1,4 +1,7 @@
 import { applyWorkspaceAction } from '../workspace-actions'
+import { prepareWorkspaceBackup } from '../workspace-backup'
+import type { BackupMode } from '../workspace-backup'
+import type { Workspace } from '../types'
 import { emptyWorkspace } from '../workspace-storage'
 import { useLocalDocuments } from './use-local-documents'
 import { loadTabs, TABS_KEY } from '../workspace-tabs'
@@ -501,8 +504,82 @@ export function useWorkspace() {
     importFolder: store.importFolder,
   })
 
+  function backupSnapshot(): Workspace {
+    return {
+      ...emptyWorkspace(),
+      name: store.workspaceName,
+      suppressedExampleIds: store.suppressedExampleIds,
+      folders: store.folders,
+      notes: [
+        ...documents,
+        ...store.notes.filter(
+          (note) =>
+            note.deletedAt && !documents.some((item) => item.id === note.id),
+        ),
+      ],
+    }
+  }
+
+  function importBackup(
+    incoming: Workspace,
+    mode: BackupMode,
+    expectedStored: string | null,
+  ) {
+    if (
+      busy ||
+      localFolder.busy ||
+      localDocuments.busy ||
+      pageSaveInProgress.current ||
+      localDocuments.recovery
+    )
+      throw new WorkspaceError(
+        'Aguarde a operação atual antes de importar o backup.',
+      )
+    const next = prepareWorkspaceBackup(
+      backupSnapshot(),
+      incoming,
+      mode,
+      exampleNotes.map((note) => note.id),
+    )
+    store.replaceFromBackup(next, expectedStored)
+    setDrafts([])
+    if (mode === 'replace') {
+      localFolder.disconnect()
+      sources.current.clear()
+      localDocuments.reconcile(
+        localDocuments.notes.map((note) => {
+          const copy = { ...note }
+          delete copy.folderId
+          return copy
+        }),
+      )
+    }
+    setQuery('')
+    setSelectedFolder(undefined)
+    setExpandedFolders(new Set())
+    const first = next.notes.find(
+      (note) =>
+        !note.deletedAt &&
+        (mode === 'replace' || !documents.some((item) => item.id === note.id)),
+    )
+    setActiveId(first?.id ?? null)
+    setOpenIds(first ? [first.id] : [])
+    setMode('read')
+    setActionError(null)
+    setMessage(
+      'Backup importado neste navegador. Os arquivos originais no computador não foram alterados.',
+    )
+  }
+
   return {
     ...store,
+    importBackup,
+    downloadCurrentBackup: () =>
+      downloadFile(
+        'devnotes-before-import.json',
+        JSON.stringify(backupSnapshot(), null, 2),
+        'application/json',
+      ),
     localFolder,
     localDocuments,
     restoreRevision: (id: string, revisionId: string) => {

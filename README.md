@@ -65,7 +65,7 @@ Preview Mermaid diagrams, copy syntax-highlighted code, and link related notes w
 
 ### Present and export
 
-Turn document headings into slides or print the active page to PDF. Download individual Markdown files, or export a JSON archive of the workspace with its folders and history. JSON archive import is not implemented; keep Markdown copies for documents you need to reopen independently.
+Turn document headings into slides or print the active page to PDF. Download individual Markdown files, or export a JSON archive of the workspace with its folders and history. Import a JSON backup with a preview, then merge it into a separate folder or restore the browser workspace. Restoration requires confirmation and offers a download of the current workspace first.
 
 ### Ask questions about your notes
 
@@ -130,6 +130,14 @@ Uninstalling keeps your documents and checkout. See the [local launcher guide](d
 Clearing browser data removes the browser workspace, preferences, and recovery snapshots. Download important notes separately. Connected-folder access requires a browser with the directory picker API; other browsers can still import files and download Markdown copies.
 
 The standard web app has no cloud synchronization. Optional AI requests go to the endpoint you configure. The local file service binds to `127.0.0.1` and is intended for your own computer.
+
+## Backup recovery and save destinations
+
+Use Import backup in the sidebar or command palette to select a DevNotes JSON archive. The preview shows documents, folders, trash, and revision counts. Merge keeps existing documents and adds the archive under a separate folder; Restore replaces the browser workspace after confirmation. Imported files are browser copies, with new identifiers and remapped stable note links. They do not inherit file access permissions.
+
+Imports support up to 20 MB and 2,000 notes and folders. Invalid archives, unavailable storage, and changes made in another tab while the preview is open prevent the import. Original files already opened through the launcher remain open; restoring disconnects any connected local folder. Download the current workspace before restoring if you need to retain it.
+
+The save-destination strip identifies original files, imported copies, connected folders, and temporary documents. It explains whether Save writes to the original or stores the document in this browser. Connected files keep their separate explicit folder-save action.
 
 ## Keyboard shortcuts
 

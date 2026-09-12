@@ -56,7 +56,7 @@ describe('Editor command palette', () => {
     const { user } = setup()
     await user.keyboard('{Control>}k{/Control}')
     const group = screen.getByRole('group', { name: 'Ações do editor' })
-    expect(within(group).getAllByRole('option')).toHaveLength(17)
+    expect(within(group).getAllByRole('option')).toHaveLength(18)
     await user.keyboard('{Escape}')
     await command(user, 'tema', 'Alterar tema')
     expect(document.documentElement).toHaveClass('dark')

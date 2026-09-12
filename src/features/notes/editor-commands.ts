@@ -20,6 +20,13 @@ import {
 
 export const editorCommandDefinitions = [
   {
+    id: 'import-backup',
+    label: 'Importar backup',
+    description: 'Conferir, mesclar ou restaurar um backup JSON do DevNotes.',
+    keywords: 'backup json recuperar restaurar importar',
+    icon: FileUp,
+  },
+  {
     id: 'focus',
     label: 'Alternar modo foco',
     description: 'Concentrar no documento. Esc restaura a interface.',
