@@ -9,7 +9,6 @@ import {
   FolderOpen,
   FileUp,
   Save,
-  SaveAll,
   FilePenLine,
   Search,
   Presentation,
@@ -19,13 +18,6 @@ import {
 } from 'lucide-react'
 
 export const editorCommandDefinitions = [
-  {
-    id: 'import-backup',
-    label: 'Importar backup',
-    description: 'Conferir, mesclar ou restaurar um backup JSON do DevNotes.',
-    keywords: 'backup json recuperar restaurar importar',
-    icon: FileUp,
-  },
   {
     id: 'focus',
     label: 'Alternar modo foco',
@@ -93,7 +85,7 @@ export const editorCommandDefinitions = [
   },
   {
     id: 'new-folder',
-    label: 'Nova pasta no workspace',
+    label: 'Nova pasta',
     description: 'Criar uma pasta no local selecionado.',
     keywords: 'criar diretorio subpasta espaco trabalho',
     icon: FolderPlus,
@@ -112,13 +104,6 @@ export const editorCommandDefinitions = [
     description: 'Abrir uma cópia de um arquivo .md ou .markdown.',
     keywords: 'pc disco importar carregar markdown',
     icon: FileUp,
-  },
-  {
-    id: 'save-workspace',
-    label: 'Salvar workspace',
-    description: 'Salvar os documentos e baixar um backup com as pastas.',
-    keywords: 'salvar espaco trabalho exportar backup json',
-    icon: SaveAll,
   },
   {
     id: 'save-page',

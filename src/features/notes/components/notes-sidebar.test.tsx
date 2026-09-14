@@ -23,9 +23,17 @@ const notes = [
   { id: 'api', title: 'API', content: 'Endpoints', folderId: 'backend' },
 ]
 
-function setup() {
+function setup({
+  sidebarNotes = notes,
+  sidebarFolders = folders,
+}: {
+  sidebarNotes?: typeof notes
+  sidebarFolders?: typeof folders
+} = {}) {
   const onSelect = vi.fn()
   const onNewFolder = vi.fn()
+  const onOpenFile = vi.fn()
+  const onOpenFolder = vi.fn()
   function Workspace() {
     const [query, setQuery] = useState('')
     const [selectedFolder, setSelectedFolder] = useState<string>()
@@ -33,8 +41,8 @@ function setup() {
     return (
       <SidebarProvider>
         <NotesSidebar
-          notes={notes}
-          folders={folders}
+          notes={sidebarNotes}
+          folders={sidebarFolders}
           activeId="worker"
           selectedFolder={selectedFolder}
           expandedFolders={expandedFolders}
@@ -53,15 +61,14 @@ function setup() {
               return next
             })
           }}
-          onOpenFile={vi.fn()}
+          onOpenFile={onOpenFile}
           actions={{
             onNewDocument: vi.fn(),
             onNewPage: vi.fn(),
             onNewFolder,
             onRefresh: vi.fn(),
             onCollapseAll: () => setExpandedFolders(new Set()),
-            onOpenFolder: vi.fn(),
-            onSaveWorkspace: vi.fn(),
+            onOpenFolder,
           }}
         />
       </SidebarProvider>
@@ -72,7 +79,13 @@ function setup() {
       <Workspace />
     </TooltipProvider>,
   )
-  return { user: userEvent.setup(), onSelect, onNewFolder }
+  return {
+    user: userEvent.setup(),
+    onSelect,
+    onNewFolder,
+    onOpenFile,
+    onOpenFolder,
+  }
 }
 
 describe('Sidebar folder hierarchy', () => {
@@ -80,7 +93,10 @@ describe('Sidebar folder hierarchy', () => {
     const { user, onSelect } = setup()
     const engineering = screen.getByTitle('Engineering')
     const rootList = engineering.closest('ul')!
-    expect(rootList.parentElement?.tagName).toBe('LI')
+    expect(screen.queryByText('Documentos')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Pasta principal' }),
+    ).not.toBeInTheDocument()
     expect(
       within(rootList)
         .getAllByRole('button')
@@ -152,5 +168,23 @@ describe('Sidebar folder hierarchy', () => {
       'true',
     )
     expect(screen.getByTitle('Engineering / Backend')).toBeVisible()
+  })
+
+  it('shows only explicit open actions when no file or folder is available', async () => {
+    const { user, onOpenFile, onOpenFolder } = setup({
+      sidebarNotes: [],
+      sidebarFolders: [],
+    })
+    expect(screen.queryByText('Documentos')).not.toBeInTheDocument()
+    expect(screen.getByText('Nenhum arquivo ou pasta aberto')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Abra um arquivo Markdown ou escolha uma pasta para começar.',
+      ),
+    ).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Abrir arquivo' }))
+    await user.click(screen.getByRole('button', { name: 'Escolher pasta' }))
+    expect(onOpenFile).toHaveBeenCalledOnce()
+    expect(onOpenFolder).toHaveBeenCalledOnce()
   })
 })

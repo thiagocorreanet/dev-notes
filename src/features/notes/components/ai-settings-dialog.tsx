@@ -129,7 +129,7 @@ export function AiSettingsDialog({
             />
             <p id="ai-key-help" className="text-xs text-muted-foreground">
               A chave fica apenas na memória desta aba e é apagada ao
-              recarregar. Os documentos e backups não incluem essa configuração.
+              recarregar. Os documentos não incluem essa configuração.
             </p>
           </div>
           {error && (

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useWorkspace } from './use-workspace'
+import { TABS_KEY } from '../workspace-tabs'
 
 const path = '/home/user/Notes/a space & ação.md'
 const original = {
@@ -29,6 +30,21 @@ function setup() {
 }
 
 describe('Local document launch', () => {
+  it('opens only the requested document instead of restoring workspace tabs', async () => {
+    const previousTabs = JSON.stringify({
+      ids: ['example-getting-started', 'example-markdown-reference'],
+      activeId: 'example-markdown-reference',
+    })
+    localStorage.setItem(TABS_KEY, previousTabs)
+    const { result } = setup()
+    expect(result.current.openNotes).toEqual([])
+    await waitFor(() => expect(result.current.activeNote.sourcePath).toBe(path))
+    expect(result.current.openNotes.map((note) => note.id)).toEqual([
+      `local:${encodeURIComponent(path)}`,
+    ])
+    expect(localStorage.getItem(TABS_KEY)).toBe(previousTabs)
+  })
+
   it('opens the URL file and writes only on explicit save, preserving the original heading and line endings', async () => {
     const { result, fetch } = setup()
     await waitFor(() => expect(result.current.activeNote.sourcePath).toBe(path))

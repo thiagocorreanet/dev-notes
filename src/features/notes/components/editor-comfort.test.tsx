@@ -113,6 +113,9 @@ describe('Editor comfort', () => {
     expect(await screen.findByRole('heading', { name: 'First' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Abrir aba Second' })).toBeVisible()
     expect(
+      screen.queryByRole('tab', { name: 'Abrir aba Guide' }),
+    ).not.toBeInTheDocument()
+    expect(
       parseWorkspace(localStorage.getItem(WORKSPACE_KEY)!).notes,
     ).toHaveLength(3)
     expect(
@@ -136,7 +139,7 @@ describe('Editor comfort', () => {
     })
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
-        'Selecione um arquivo Markdown',
+        'Selecione apenas arquivos Markdown.',
       ),
     )
     expect(screen.getByRole('heading', { name: 'Guide' })).toBeVisible()

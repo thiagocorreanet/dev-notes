@@ -35,7 +35,7 @@ export function parseWorkspace(json: string): Workspace {
     value = JSON.parse(json)
   } catch {
     throw new WorkspaceError(
-      'Não foi possível ler o backup. Selecione um arquivo JSON válido do DevNotes.',
+      'Não foi possível ler os dados salvos do DevNotes.',
     )
   }
   if (
@@ -57,7 +57,7 @@ export function parseWorkspace(json: string): Workspace {
       (!Array.isArray(value.suppressedExampleIds) ||
         !value.suppressedExampleIds.every((id) => typeof id === 'string')))
   ) {
-    throw new WorkspaceError('Este arquivo não é um backup válido do DevNotes.')
+    throw new WorkspaceError('Os dados salvos do DevNotes são inválidos.')
   }
   const { notes, folders } = value
   const ids = [
@@ -66,7 +66,7 @@ export function parseWorkspace(json: string): Workspace {
   ]
   if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
     throw new WorkspaceError(
-      'O backup contém documentos ou pastas com identificadores repetidos ou vazios.',
+      'Os dados salvos contêm documentos ou pastas com identificadores repetidos ou vazios.',
     )
   }
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
@@ -75,7 +75,7 @@ export function parseWorkspace(json: string): Workspace {
     let parent = folder.parentId
     while (parent !== undefined) {
       if (visited.has(parent) || !byId.has(parent))
-        throw new WorkspaceError('A estrutura de pastas do backup é inválida.')
+        throw new WorkspaceError('A estrutura de pastas salva é inválida.')
       visited.add(parent)
       parent = byId.get(parent)?.parentId
     }
@@ -86,7 +86,7 @@ export function parseWorkspace(json: string): Workspace {
     )
   ) {
     throw new WorkspaceError(
-      'Uma página do backup pertence a uma pasta que não existe.',
+      'Uma página salva pertence a uma pasta que não existe.',
     )
   }
   return {

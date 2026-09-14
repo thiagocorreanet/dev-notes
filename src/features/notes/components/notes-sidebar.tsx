@@ -11,6 +11,14 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
+import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -253,9 +261,16 @@ export function NotesSidebar({
           </p>
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-xs font-medium text-muted-foreground">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 h-7 min-w-0 px-2 text-xs font-medium text-muted-foreground"
+            aria-label="Selecionar raiz do espaço de trabalho"
+            aria-pressed={selectedFolder === undefined}
+            onClick={onSelectRoot}
+          >
             Espaço de trabalho
-          </span>
+          </Button>
           <WorkspaceToolbar
             {...actions}
             onNewDocument={() => leaveSidebar(actions.onNewDocument)}
@@ -309,38 +324,56 @@ export function NotesSidebar({
           </SidebarGroup>
         )}
         <SidebarGroup>
-          <nav aria-label="Documentos">
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={onSelectRoot}
-                  isActive={selectedFolder === undefined}
-                  aria-label="Pasta principal"
-                >
-                  <FolderOpen aria-hidden="true" />
-                  <span>Documentos</span>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {notes.length}
-                  </span>
-                </SidebarMenuButton>
-                <SidebarMenuSub className="mr-0">
-                  {renderItems()}
-                </SidebarMenuSub>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </nav>
-          <p
-            role="status"
-            className={
-              filteredNotes.length || visibleFolders.size
-                ? 'sr-only'
-                : 'p-3 text-sm text-muted-foreground'
-            }
-          >
-            {filteredNotes.length || visibleFolders.size
-              ? `${filteredNotes.length} ${filteredNotes.length === 1 ? 'nota' : 'notas'} e ${visibleFolders.size} ${visibleFolders.size === 1 ? 'pasta encontrada' : 'pastas encontradas'}.`
-              : 'Nenhuma nota ou pasta encontrada. Tente outra busca.'}
-          </p>
+          {filteredNotes.length || visibleFolders.size ? (
+            <>
+              <nav aria-label="Arquivos e pastas">
+                <SidebarMenu>{renderItems()}</SidebarMenu>
+              </nav>
+              <p role="status" className="sr-only">
+                {`${filteredNotes.length} ${filteredNotes.length === 1 ? 'nota' : 'notas'} e ${visibleFolders.size} ${visibleFolders.size === 1 ? 'pasta encontrada' : 'pastas encontradas'}.`}
+              </p>
+            </>
+          ) : search ? (
+            <p role="status" className="p-3 text-sm text-muted-foreground">
+              Nenhuma nota ou pasta encontrada. Tente outra busca.
+            </p>
+          ) : (
+            <>
+              <p role="status" className="sr-only">
+                Nenhum arquivo ou pasta está aberto.
+              </p>
+              <Empty className="px-2 py-8">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <FolderOpen aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>Nenhum arquivo ou pasta aberto</EmptyTitle>
+                  <EmptyDescription>
+                    Abra um arquivo Markdown ou escolha uma pasta para começar.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent className="flex-row justify-center">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => leaveSidebar(onOpenFile)}
+                  >
+                    <Upload aria-hidden="true" />
+                    Abrir arquivo
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => leaveSidebar(actions.onOpenFolder)}
+                  >
+                    <FolderOpen aria-hidden="true" />
+                    Escolher pasta
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            </>
+          )}
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="gap-2 border-t p-4 text-xs text-muted-foreground">
@@ -369,7 +402,9 @@ export function NotesSidebar({
         <p>
           {localFile
             ? 'Salvar grava as alterações no arquivo original.'
-            : 'Você edita cópias. Os arquivos originais não mudam.'}
+            : notes.length || folders.length
+              ? 'Você edita cópias. Os arquivos originais não mudam.'
+              : 'Abra um arquivo ou escolha uma pasta para começar.'}
         </p>
       </SidebarFooter>
     </Sidebar>

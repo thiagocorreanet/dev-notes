@@ -16,6 +16,61 @@ afterEach(() => {
 })
 
 describe('Connected workspace', () => {
+  it('creates a named folder in a chosen computer location', async () => {
+    const { result, directories } = setup()
+    await act(() => result.current.localFolder.create('Loggi'))
+    const folder = result.current.folders.find((item) => item.name === 'Loggi')
+    expect(window.showDirectoryPicker).toHaveBeenCalledWith({
+      mode: 'readwrite',
+    })
+    expect(directories.has('Loggi')).toBe(true)
+    expect(result.current.localFolder.rootName).toBe('Loggi')
+    expect(result.current.selectedFolder).toBe(folder?.id)
+    expect(result.current.localFolder.message).toContain('criada no computador')
+  })
+
+  it('keeps a new computer folder under the selected workspace parent', async () => {
+    const { result, disk } = setup()
+    act(() => result.current.createFolder('docs'))
+    const docs = result.current.folders.find((item) => item.name === 'docs')!
+    await act(() => result.current.localFolder.create('Loggiq', docs.id))
+    const loggiq = result.current.folders.find(
+      (item) => item.name === 'Loggiq',
+    )!
+    expect(loggiq.parentId).toBe(docs.id)
+    expect(result.current.selectedFolder).toBe(loggiq.id)
+    act(() => result.current.createPage('Guide', 'Nested content'))
+    const note = result.current.documents.find(
+      (item) => item.title === 'Guide',
+    )!
+    await act(() => result.current.localFolder.save(note.id, 'guide.md'))
+    expect(disk.get('Loggiq/guide.md')).toBe('# Guide\n\nNested content')
+    expect(
+      result.current.folders.filter((item) => item.name === 'Loggiq'),
+    ).toHaveLength(1)
+    expect(
+      result.current.documents.find((item) => item.id === note.id)?.folderId,
+    ).toBe(loggiq.id)
+  })
+
+  it('saves an existing workspace folder and its Markdown files on the computer', async () => {
+    const { result, directories, disk } = setup()
+    act(() => result.current.createFolder('Loggi'))
+    const folder = result.current.folders.find((item) => item.name === 'Loggi')!
+    act(() => result.current.createFolder('Empty'))
+    act(() => result.current.setSelectedFolder(folder.id))
+    act(() => result.current.createPage('Runbook', 'Deployment notes'))
+    await act(() => result.current.localFolder.saveWorkspaceFolder(folder.id))
+    expect(directories.has('Loggi')).toBe(true)
+    expect(directories.has('Loggi/Empty')).toBe(true)
+    expect(disk.get('Loggi/Runbook.md')).toBe('# Runbook\n\nDeployment notes')
+    expect(
+      result.current.documents.find((note) => note.title === 'Runbook')
+        ?.sourcePath,
+    ).toBe('Loggi/Runbook.md')
+    expect(result.current.localFolder.rootName).toBe('Loggi')
+  })
+
   it('imports without writing, persists explicit edits and loads external changes', async () => {
     const { result, disk, writes } = setup()
     await act(() => result.current.localFolder.connect())
@@ -23,6 +78,9 @@ describe('Connected workspace', () => {
       mode: 'readwrite',
     })
     expect(writes).not.toHaveBeenCalled()
+    expect(result.current.openNotes.map((note) => note.title)).toEqual([
+      'Guide',
+    ])
     const note = result.current.documents.find(
       (item) => item.sourcePath === 'Project/guide.md',
     )!

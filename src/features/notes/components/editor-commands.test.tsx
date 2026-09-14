@@ -56,7 +56,7 @@ describe('Editor command palette', () => {
     const { user } = setup()
     await user.keyboard('{Control>}k{/Control}')
     const group = screen.getByRole('group', { name: 'Ações do editor' })
-    expect(within(group).getAllByRole('option')).toHaveLength(18)
+    expect(within(group).getAllByRole('option')).toHaveLength(16)
     await user.keyboard('{Escape}')
     await command(user, 'tema', 'Alterar tema')
     expect(document.documentElement).toHaveClass('dark')
@@ -91,7 +91,7 @@ describe('Editor command palette', () => {
     expect(stored.notes.map((note) => note.title)).toContain('First draft')
   })
 
-  it('opens Markdown file and folder pickers and saves a workspace backup', async () => {
+  it('opens Markdown file and folder pickers', async () => {
     const { user } = setup()
     const click = vi.spyOn(HTMLInputElement.prototype, 'click')
     await command(user, 'arquivo pc', 'Abrir arquivo Markdown')
@@ -112,24 +112,25 @@ describe('Editor command palette', () => {
     expect(
       await screen.findByRole('heading', { name: 'Imported' }),
     ).toBeVisible()
+    expect(
+      screen.queryByRole('tab', { name: 'Abrir aba Team guide' }),
+    ).not.toBeInTheDocument()
     await command(user, 'abrir pasta', 'Abrir pasta')
     expect(click.mock.instances.at(-1)).toHaveAttribute(
       'aria-label',
       'Selecionar pasta',
     )
-    await command(user, 'salvar workspace', 'Salvar workspace')
-    expect(downloadFile).toHaveBeenCalledWith(
-      'dev-notes-workspace.json',
-      expect.stringContaining('External content'),
-      'application/json',
-    )
   })
 
   it('creates a folder and downloads the current page under a chosen filename', async () => {
     const { user } = setup()
-    await command(user, 'nova pasta', 'Nova pasta no workspace')
+    await command(user, 'nova pasta', 'Nova pasta')
     await user.type(screen.getByLabelText('Nome da pasta'), 'Guides')
-    await user.click(screen.getByRole('button', { name: 'Criar pasta' }))
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Criar somente neste navegador',
+      }),
+    )
     expect(
       parseWorkspace(localStorage.getItem(WORKSPACE_KEY) ?? '').folders[0]
         ?.name,

@@ -44,7 +44,7 @@ const note = {
 
 ## 4. Suas notas ficam neste navegador
 
-As notas são salvas localmente no navegador que você está usando. Na barra lateral, você pode criar documentos temporários, páginas e pastas. Abra uma pasta do computador para importar documentos Markdown sem alterar os originais. **Salvar espaço de trabalho** baixa um backup dos documentos e pastas. Não há sincronização com a nuvem: limpar os dados do navegador apaga o espaço de trabalho salvo.
+As notas são salvas localmente no navegador que você está usando. Na barra lateral, você pode criar documentos temporários, páginas e pastas. Abra uma pasta do computador para importar documentos Markdown sem alterar os originais. Use **Salvar página** para guardar um documento temporário no navegador. Não há sincronização com a nuvem: limpar os dados do navegador apaga o espaço de trabalho salvo.
 `,
   },
   {
@@ -66,7 +66,7 @@ Comece uma linha com \`##\` para criar um título de seção. Coloque o texto en
 
 - [x] Criar um espaço de trabalho
 - [ ] Escrever sua primeira nota
-- [ ] Baixar um backup
+- [ ] Abrir uma pasta de notas
 
 As tarefas aparecem aqui para consulta. Para marcá-las como concluídas, altere o Markdown no editor.
 

@@ -4,7 +4,7 @@
 
 The Quality workflow runs for pull requests, pushes to `main`, and manual dispatches. Its code job checks formatting, lint, types, editor tests, local file-service tests, automation tests, and the production build. The browser job tests that build with Chromium and Firefox. Each test owns a temporary directory and a local service on an automatically assigned port.
 
-Browser coverage includes original-file saves, recovery after reload, external edit conflicts, reading position, minimap navigation, focus and appearance settings, dropped copies, narrow screens, folder navigation, and backup preview, merge, and restore. These tests do not use your installed service, browser profile, or personal documents.
+Browser coverage includes original-file saves, recovery after reload, external edit conflicts, reading position, minimap navigation, focus and appearance settings, dropped copies, narrow screens, and folder navigation. These tests do not use your installed service, browser profile, or personal documents.
 
 New commits cancel earlier Quality runs for the same pull request. The final `Required checks` job succeeds only when code and browser jobs both pass.
 

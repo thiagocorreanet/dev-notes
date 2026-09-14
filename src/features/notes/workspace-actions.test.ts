@@ -229,6 +229,6 @@ describe('Revision retention', () => {
           ],
         }),
       ),
-    ).toThrow('backup válido')
+    ).toThrow('dados salvos do DevNotes são inválidos')
   })
 })

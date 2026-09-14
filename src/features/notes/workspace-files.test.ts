@@ -35,10 +35,11 @@ describe('Folder imports', () => {
       'Project',
       'api',
       'web',
+      'assets',
     ])
   })
 
-  it('imports only Markdown ancestors through the native directory picker', async () => {
+  it('imports folders and Markdown files through the native directory picker', async () => {
     const ignoredFile: LocalFileHandle = {
       kind: 'file',
       name: 'config.json',
@@ -78,14 +79,16 @@ describe('Folder imports', () => {
     expect(result.notes.map((note) => note.title)).toEqual(['Guide'])
     expect(result.folders.map((folder) => folder.name)).toEqual([
       'Project',
+      'assets',
+      'empty',
       'docs',
       'guides',
     ])
-    expect(result.folders[2]?.parentId).toBe(result.folders[1]?.id)
-    expect(result.notes[0]?.folderId).toBe(result.folders[2]?.id)
+    expect(result.folders[4]?.parentId).toBe(result.folders[3]?.id)
+    expect(result.notes[0]?.folderId).toBe(result.folders[4]?.id)
   })
 
-  it('rejects native folders and file lists without Markdown documents', async () => {
+  it('accepts folders without Markdown documents', async () => {
     await expect(
       importDirectory({
         kind: 'directory',
@@ -94,15 +97,15 @@ describe('Folder imports', () => {
           yield* await Promise.resolve([])
         },
       }),
-    ).rejects.toThrow('não contém arquivos Markdown')
+    ).resolves.toMatchObject({ notes: [], folders: [{ name: 'Empty' }] })
     await expect(
       importFileList([file('data.json', 'Folder/data.json', '{}')]),
-    ).rejects.toThrow('não contém arquivos Markdown')
+    ).resolves.toMatchObject({ notes: [], folders: [{ name: 'Folder' }] })
   })
 
   it.each([
     'note.txt',
-    'backup.json',
+    'notes.json',
     'document.pdf',
     'image.png',
     'note.md.exe',

@@ -43,13 +43,15 @@ These are screenshots of the running application with sample notes. The [identit
 
 Switch between reading, visual editing, Markdown source, and a split preview. The visual editor supports headings, tables, checklists, images, and code blocks. Documents that cannot be converted safely remain available in the source editor. Opening visual mode alone does not rewrite a file.
 
+Select text in reading or visual-editing mode to add a yellow, green, blue, or pink visual highlight. Highlights are stored as browser metadata and never add markup to the Markdown file.
+
 ### Organize notes around your projects
 
-Create nested folders, keep several documents open in tabs, and pin favorites. Search titles, document content, and folder paths. Rename, move, or duplicate workspace items from their menus. Deleted notes go to the trash, and document history lets you compare and restore earlier versions.
+Create nested folders, keep several documents open in tabs, and pin favorites. When creating a folder, choose a matching location on the computer to create and connect it, or keep it only in the browser. The selected workspace folder remains its parent, so a directory created inside `docs` appears as `docs/child` in the sidebar. Existing workspace folders can be saved to a chosen computer location from their item menu. The sidebar shows standalone files and the actual folders you open, without adding a synthetic root folder. Search titles, document content, and folder paths. Rename, move, or duplicate workspace items from their menus. Deleted notes go to the trash, and document history lets you compare and restore earlier versions.
 
 ### Open files from Linux
 
-Double-click a Markdown file to open DevNotes in your default browser. A small local Node.js service serves the application and reads only files authorized through the launcher. Saving checks for external changes before writing to the original. Dropped files and ordinary browser imports open as copies.
+Double-click a Markdown file to open DevNotes in your default browser. A small local Node.js service serves the application and reads only files authorized through the launcher. An explicit file or folder opening replaces the previous tab set, while the saved browser workspace remains available in the sidebar. Saving checks for external changes before writing to the original. Dropped files and ordinary browser imports open as copies.
 
 ### Find commands without leaving the document
 
@@ -65,7 +67,7 @@ Preview Mermaid diagrams, copy syntax-highlighted code, and link related notes w
 
 ### Present and export
 
-Turn document headings into slides or print the active page to PDF. Download individual Markdown files, or export a JSON archive of the workspace with its folders and history. Import a JSON backup with a preview, then merge it into a separate folder or restore the browser workspace. Restoration requires confirmation and offers a download of the current workspace first.
+Turn document headings into slides or print the active page to PDF. Download individual Markdown files whenever you want a portable copy.
 
 ### Ask questions about your notes
 
@@ -131,11 +133,7 @@ Clearing browser data removes the browser workspace, preferences, and recovery s
 
 The standard web app has no cloud synchronization. Optional AI requests go to the endpoint you configure. The local file service binds to `127.0.0.1` and is intended for your own computer.
 
-## Backup recovery and save destinations
-
-Use Import backup in the sidebar or command palette to select a DevNotes JSON archive. The preview shows documents, folders, trash, and revision counts. Merge keeps existing documents and adds the archive under a separate folder; Restore replaces the browser workspace after confirmation. Imported files are browser copies, with new identifiers and remapped stable note links. They do not inherit file access permissions.
-
-Imports support up to 20 MB and 2,000 notes and folders. Invalid archives, unavailable storage, and changes made in another tab while the preview is open prevent the import. Original files already opened through the launcher remain open; restoring disconnects any connected local folder. Download the current workspace before restoring if you need to retain it.
+## Save destinations
 
 The save-destination strip identifies original files, imported copies, connected folders, and temporary documents. It explains whether Save writes to the original or stores the document in this browser. Connected files keep their separate explicit folder-save action.
 
