@@ -1,4 +1,5 @@
 import type { Note } from './types'
+import { isEncryptedPayload } from './document-protection'
 
 const STORAGE_KEY = 'dev-notes:notes:v1'
 
@@ -21,6 +22,7 @@ export function isNote(value: unknown): value is Note {
     (!('favorite' in value) || typeof value.favorite === 'boolean') &&
     (!('deletedAt' in value) || validTimestamp(value.deletedAt)) &&
     (!('trashBatchId' in value) || typeof value.trashBatchId === 'string') &&
+    (!('protection' in value) || isNoteProtection(value.protection)) &&
     (!('revisions' in value) ||
       (Array.isArray(value.revisions) &&
         value.revisions.length <= 30 &&
@@ -36,7 +38,24 @@ export function isNote(value: unknown): value is Note {
             typeof revision.content === 'string' &&
             'createdAt' in revision &&
             validTimestamp(revision.createdAt),
-        )))
+        ))) &&
+    (!('protection' in value) ||
+      (value.content === '' && !('revisions' in value)))
+  )
+}
+
+export function isNoteProtection(value: unknown) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'format' in value &&
+    value.format === 'devnotes-encrypted' &&
+    'version' in value &&
+    value.version === 1 &&
+    'ownerId' in value &&
+    typeof value.ownerId === 'string' &&
+    'payload' in value &&
+    isEncryptedPayload(value.payload)
   )
 }
 

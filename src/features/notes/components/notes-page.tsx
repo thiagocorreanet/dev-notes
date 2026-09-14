@@ -5,7 +5,7 @@ import { motionEnabled } from '../appearance'
 import { AppearanceDialog } from './appearance-dialog'
 import { MarkdownDropZone } from './markdown-drop-zone'
 import { DraftRecovery } from './draft-recovery'
-import { Focus, Settings2 } from 'lucide-react'
+import { Focus, LockKeyhole, Settings2 } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { DocumentLoading } from './document-loading'
 import { NoteNavigationContext } from '../note-navigation'
@@ -88,12 +88,44 @@ import { PrintDocument } from './print-document'
 import { SaveAsDialog } from './save-as-dialog'
 import { ResizableWorkspace } from './resizable-workspace'
 import { TextHighlighter } from './text-highlighter'
+import { ProtectionDialog } from './protection-dialog'
+import { serializeProtectedMarkdown } from '../document-protection'
 
 function downloadNote(note: Note) {
   downloadFile(
     markdownFilename(note.title),
-    `# ${note.title}\n\n${note.content}\n`,
+    note.protection
+      ? serializeProtectedMarkdown(note)
+      : `# ${note.title}\n\n${note.content}\n`,
     'text/markdown;charset=utf-8',
+  )
+}
+
+function LockedDocument({
+  name,
+  onUnlock,
+}: {
+  name: string
+  onUnlock: () => void
+}) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-6">
+      <div className="w-full max-w-md space-y-5 rounded-xl border bg-card p-6 text-center shadow-sm">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <LockKeyhole aria-hidden="true" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-xl font-semibold">Documento protegido</h1>
+          <p className="text-sm text-muted-foreground">
+            Digite a senha para acessar “{name}” nesta sessão.
+          </p>
+        </div>
+        <Button onClick={onUnlock}>
+          <LockKeyhole aria-hidden="true" />
+          Desbloquear documento
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -185,10 +217,18 @@ export function NotesPage() {
       void workspace.localFolder.saveWorkspaceFolder(request.id)
       return
     }
+    if (request.action === 'lock') {
+      workspace.lockItem(request)
+      setItemRequest(null)
+      return
+    }
     if (
       request.action === 'rename' ||
       request.action === 'move' ||
-      request.action === 'history'
+      request.action === 'history' ||
+      request.action === 'protect' ||
+      request.action === 'unlock' ||
+      request.action === 'remove-protection'
     ) {
       setItemRequest(request)
       return
@@ -214,6 +254,21 @@ export function NotesPage() {
     itemRequest?.action === 'history'
       ? workspace.documents.find((note) => note.id === itemRequest.id)
       : undefined
+  const protectionItem = itemRequest
+    ? itemRequest.kind === 'note'
+      ? workspace.documents.find((note) => note.id === itemRequest.id)
+      : workspace.folders.find((folder) => folder.id === itemRequest.id)
+    : undefined
+  function selectNote(id: string) {
+    workspace.selectNote(id)
+    if (workspace.isNoteLocked(id))
+      setItemRequest({ kind: 'note', id, action: 'unlock' })
+  }
+  function openSearchResult(id: string) {
+    workspace.openSearchResult(id)
+    if (workspace.isNoteLocked(id))
+      setItemRequest({ kind: 'note', id, action: 'unlock' })
+  }
   const {
     appearance,
     update: updateAppearance,
@@ -329,7 +384,10 @@ export function NotesPage() {
   }
   const commands = editorCommandDefinitions.map((command) => ({
     ...command,
-    disabled: workspace.busy,
+    disabled:
+      workspace.busy ||
+      (workspace.isNoteLocked(activeNote.id) &&
+        ['pdf', 'presentation', 'find', 'minimap'].includes(command.id)),
     onSelect: () => commandActions[command.id](),
   }))
 
@@ -398,6 +456,8 @@ export function NotesPage() {
     .trim()
     .split(/\s+/)
     .filter(Boolean).length
+  const protectedLocalReadOnly =
+    !!activeNote.protection && workspace.localDocuments.has(activeNote.id)
   const location =
     workspace.folders.find((folder) => folder.id === workspace.selectedFolder)
       ?.name ?? 'Pasta principal'
@@ -407,7 +467,7 @@ export function NotesPage() {
       value={{
         notes: workspace.documents,
         folders: workspace.folders,
-        onSelect: workspace.openSearchResult,
+        onSelect: openSearchResult,
       }}
     >
       <div className={dark ? 'dark' : undefined} data-focus-mode={focusMode}>
@@ -439,13 +499,29 @@ export function NotesPage() {
                   canRefresh={!!activeNote.sourcePath}
                   localFile={workspace.localDocuments.has(activeNote.id)}
                   onQueryChange={setQuery}
-                  onSelect={workspace.selectNote}
                   onSelectRoot={() => workspace.setSelectedFolder(undefined)}
                   onToggleFolder={workspace.toggleFolder}
                   onOpenFile={() => fileInputRef.current?.click()}
+                  protectionOwner={workspace.protectionOwner}
+                  isNoteLocked={workspace.isNoteLocked}
+                  isFolderLocked={workspace.isFolderLocked}
+                  onSelect={selectNote}
                   actions={{
                     onNewDocument: workspace.newDocument,
-                    onNewPage: () => workspace.setDialog('page'),
+                    onNewPage: () => {
+                      if (
+                        workspace.selectedFolder &&
+                        workspace.isFolderLocked(workspace.selectedFolder)
+                      ) {
+                        setItemRequest({
+                          kind: 'folder',
+                          id: workspace.selectedFolder,
+                          action: 'unlock',
+                        })
+                        return
+                      }
+                      workspace.setDialog('page')
+                    },
                     onNewFolder: () => workspace.setDialog('folder'),
                     onRefresh: workspace.requestRefresh,
                     onCollapseAll: workspace.collapseAll,
@@ -577,7 +653,7 @@ export function NotesPage() {
                   <WorkspaceSearch
                     notes={workspace.documents}
                     folders={workspace.folders}
-                    onSelect={workspace.openSearchResult}
+                    onSelect={openSearchResult}
                     commands={commands}
                   />
                   <Tooltip>
@@ -600,36 +676,37 @@ export function NotesPage() {
                     </TooltipTrigger>
                     <TooltipContent>Trocar tema</TooltipContent>
                   </Tooltip>
-                  {workspace.localDocuments.has(activeNote.id) && (
-                    <Button
-                      disabled={workspace.busy}
-                      aria-label="Salvar arquivo original"
-                      onClick={() => {
-                        void workspace.savePage()
-                      }}
-                    >
-                      {workspace.pageSaveState === 'saving' ? (
-                        <Spinner
-                          aria-hidden="true"
-                          className="animate-spin motion-reduce:animate-none"
-                        />
-                      ) : workspace.pageSaveState === 'saved' ? (
-                        <Check
-                          aria-hidden="true"
-                          className="animate-in duration-150 zoom-in-75 motion-reduce:animate-none"
-                        />
-                      ) : (
-                        <Save aria-hidden="true" />
-                      )}
-                      <span className="hidden sm:inline">
-                        {workspace.pageSaveState === 'saving'
-                          ? 'Salvando…'
-                          : workspace.pageSaveState === 'saved'
-                            ? 'Salvo'
-                            : 'Salvar'}
-                      </span>
-                    </Button>
-                  )}
+                  {workspace.localDocuments.has(activeNote.id) &&
+                    !protectedLocalReadOnly && (
+                      <Button
+                        disabled={workspace.busy}
+                        aria-label="Salvar arquivo original"
+                        onClick={() => {
+                          void workspace.savePage()
+                        }}
+                      >
+                        {workspace.pageSaveState === 'saving' ? (
+                          <Spinner
+                            aria-hidden="true"
+                            className="animate-spin motion-reduce:animate-none"
+                          />
+                        ) : workspace.pageSaveState === 'saved' ? (
+                          <Check
+                            aria-hidden="true"
+                            className="animate-in duration-150 zoom-in-75 motion-reduce:animate-none"
+                          />
+                        ) : (
+                          <Save aria-hidden="true" />
+                        )}
+                        <span className="hidden sm:inline">
+                          {workspace.pageSaveState === 'saving'
+                            ? 'Salvando…'
+                            : workspace.pageSaveState === 'saved'
+                              ? 'Salvo'
+                              : 'Salvar'}
+                        </span>
+                      </Button>
+                    )}
                   <Button
                     onClick={() => downloadNote(activeNote)}
                     aria-label="Baixar Markdown"
@@ -659,7 +736,7 @@ export function NotesPage() {
                   <DocumentTabs
                     notes={workspace.openNotes}
                     activeId={activeNote.id}
-                    onSelect={workspace.selectNote}
+                    onSelect={selectNote}
                     onClose={workspace.closeTab}
                   />
                 </div>
@@ -709,6 +786,17 @@ export function NotesPage() {
                 >
                   {workspace.localDocuments.loading ? (
                     <DocumentLoading />
+                  ) : workspace.isNoteLocked(activeNote.id) ? (
+                    <LockedDocument
+                      name={activeNote.title || 'Documento sem título'}
+                      onUnlock={() =>
+                        setItemRequest({
+                          kind: 'note',
+                          id: activeNote.id,
+                          action: 'unlock',
+                        })
+                      }
+                    />
                   ) : (
                     <Tabs
                       value={mode}
@@ -762,13 +850,15 @@ export function NotesPage() {
                           >
                             <History aria-hidden="true" />
                           </Button>
-                          <TextHighlighter
-                            key={activeNote.id}
-                            documentId={activeNote.id}
-                            content={activeNote.content}
-                            view={mode}
-                            disabled={workspace.busy}
-                          />
+                          {!activeNote.protection && (
+                            <TextHighlighter
+                              key={activeNote.id}
+                              documentId={activeNote.id}
+                              content={activeNote.content}
+                              view={mode}
+                              disabled={workspace.busy}
+                            />
+                          )}
                           <TabsList
                             aria-label="Visualização do documento"
                             className="max-w-full [&_svg]:hidden sm:[&_svg]:block"
@@ -777,15 +867,24 @@ export function NotesPage() {
                               <BookOpen aria-hidden="true" />
                               Ler
                             </TabsTrigger>
-                            <TabsTrigger value="edit">
+                            <TabsTrigger
+                              value="edit"
+                              disabled={protectedLocalReadOnly}
+                            >
                               <Pencil aria-hidden="true" />
                               Editar
                             </TabsTrigger>
-                            <TabsTrigger value="split">
+                            <TabsTrigger
+                              value="split"
+                              disabled={protectedLocalReadOnly}
+                            >
                               <Columns2 aria-hidden="true" />
                               Dividir
                             </TabsTrigger>
-                            <TabsTrigger value="source">
+                            <TabsTrigger
+                              value="source"
+                              disabled={protectedLocalReadOnly}
+                            >
                               <Code2 aria-hidden="true" />
                               Markdown
                             </TabsTrigger>
@@ -833,7 +932,9 @@ export function NotesPage() {
                                     local={workspace.localDocuments.has(
                                       activeNote.id,
                                     )}
-                                    disabled={workspace.busy}
+                                    disabled={
+                                      workspace.busy || protectedLocalReadOnly
+                                    }
                                     visual={view === 'edit'}
                                     onSource={() => setMode('source')}
                                   />
@@ -1067,6 +1168,29 @@ export function NotesPage() {
                   onClose={() => setItemRequest(null)}
                 />
               )}
+            {itemRequest &&
+              (itemRequest.action === 'protect' ||
+                itemRequest.action === 'unlock' ||
+                itemRequest.action === 'remove-protection') &&
+              protectionItem && (
+                <ProtectionDialog
+                  key={`${itemRequest.id}-${itemRequest.action}`}
+                  request={itemRequest}
+                  name={
+                    'title' in protectionItem
+                      ? protectionItem.title || 'Documento sem título'
+                      : protectionItem.name
+                  }
+                  onSubmit={(password) =>
+                    itemRequest.action === 'protect'
+                      ? workspace.protectItem(itemRequest, password)
+                      : itemRequest.action === 'unlock'
+                        ? workspace.unlockItem(itemRequest, password)
+                        : workspace.removeProtection(itemRequest, password)
+                  }
+                  onClose={() => setItemRequest(null)}
+                />
+              )}
             {historyNote && (
               <HistoryDialog
                 note={historyNote}
@@ -1092,7 +1216,7 @@ export function NotesPage() {
                 onEdit={workspace.editNote}
                 onClose={() => setPanel(null)}
                 onNavigate={(task) => {
-                  workspace.openSearchResult(task.noteId)
+                  openSearchResult(task.noteId)
                   setMode('source')
                   setTaskTarget(task)
                   setPanel(null)
@@ -1105,7 +1229,7 @@ export function NotesPage() {
                 note={activeNote}
                 onClose={() => setPanel(null)}
                 onOpenNote={(id) => {
-                  workspace.openSearchResult(id)
+                  selectNote(id)
                   setPanel(null)
                 }}
               />

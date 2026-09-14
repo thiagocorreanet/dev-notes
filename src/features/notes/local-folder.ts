@@ -2,6 +2,7 @@ import type { Note } from './types'
 import type { LocalDirectoryHandle, LocalFileHandle } from './workspace-files'
 import { parseMarkdownFile } from './workspace-files'
 import { WorkspaceError } from './workspace-error'
+import { serializeProtectedMarkdown } from './document-protection'
 
 export interface DiskFile {
   path: string
@@ -19,12 +20,17 @@ export type SyncStatus =
   'saved' | 'modified' | 'external' | 'conflict' | 'missing'
 
 export function sameDocument(
-  note: Pick<Note, 'title' | 'content'>,
+  note: Pick<Note, 'title' | 'content' | 'protection'>,
   raw: string,
   path: string,
 ) {
   const parsed = parseMarkdownFile(path.split('/').at(-1)!, raw)
-  return note.title === parsed.title && note.content === parsed.content
+  return (
+    note.title === parsed.title &&
+    note.content === parsed.content &&
+    JSON.stringify(note.protection?.payload) ===
+      JSON.stringify(parsed.protection?.payload)
+  )
 }
 
 export function syncStatus(note: Note, file: SyncedFile): SyncStatus {
@@ -37,6 +43,7 @@ export function syncStatus(note: Note, file: SyncedFile): SyncStatus {
 }
 
 export function serializeLocalNote(note: Note, file?: SyncedFile): string {
+  if (note.protection) return serializeProtectedMarkdown(note)
   const raw = file?.baseline
   if (file && raw != null) {
     const parsed = parseMarkdownFile(file.path.split('/').at(-1)!, raw)

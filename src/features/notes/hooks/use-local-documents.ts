@@ -1,4 +1,5 @@
 import {
+  clearLocalDrafts,
   discardLocalDraft,
   draftKey,
   persistLocalDraft,
@@ -13,6 +14,7 @@ import { requestLocalDocument, requestedLocalFile } from '../local-document'
 import { parseMarkdownFile } from '../workspace-files'
 import { serializeLocalNote } from '../local-folder'
 import { WorkspaceError } from '../workspace-error'
+import { clearTextHighlights } from '../text-highlights'
 
 interface OpenDocument {
   note: Note
@@ -58,6 +60,12 @@ export function useLocalDocuments(onOpen: (id: string) => void) {
           ...parseMarkdownFile(disk.name, disk.raw),
           sourcePath: disk.path,
         }
+        if (note.protection)
+          note.protection = { ...note.protection, ownerId: note.id }
+        if (note.protection) {
+          clearLocalDrafts(disk.path)
+          clearTextHighlights(note.id)
+        }
         try {
           const candidates = readLocalDrafts(disk.path)
           setRecoveries(
@@ -87,6 +95,8 @@ export function useLocalDocuments(onOpen: (id: string) => void) {
               ...parseMarkdownFile(first.disk.name, first.disk.raw),
               sourcePath: first.disk.path,
             }
+            if (note.protection)
+              note.protection = { ...note.protection, ownerId: note.id }
             setFiles([{ note, disk: first.disk }])
             setRecoveries(candidates)
             didOpen(note.id)
@@ -180,10 +190,10 @@ export function useLocalDocuments(onOpen: (id: string) => void) {
     setError(null)
     try {
       const disk = await requestLocalDocument(file.disk.path)
-      cacheDraft(
-        { ...file.note, ...parseMarkdownFile(disk.name, disk.raw) },
-        disk,
-      )
+      const parsed = parseMarkdownFile(disk.name, disk.raw)
+      if (parsed.protection)
+        parsed.protection = { ...parsed.protection, ownerId: file.note.id }
+      cacheDraft({ ...file.note, ...parsed }, disk)
       setFiles((current) =>
         current.map((item) =>
           item.note.id === id
@@ -191,7 +201,7 @@ export function useLocalDocuments(onOpen: (id: string) => void) {
                 disk,
                 note: {
                   ...item.note,
-                  ...parseMarkdownFile(disk.name, disk.raw),
+                  ...parsed,
                 },
               }
             : item,

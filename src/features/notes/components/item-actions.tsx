@@ -5,9 +5,12 @@ import {
   FolderInput,
   HardDriveDownload,
   History,
+  LockKeyhole,
+  LockOpen,
   Pencil,
   Star,
   Trash2,
+  ShieldOff,
 } from 'lucide-react'
 import {
   ContextMenu,
@@ -32,20 +35,61 @@ export type ItemAction =
   | 'favorite'
   | 'history'
   | 'save-folder'
+  | 'protect'
+  | 'unlock'
+  | 'lock'
+  | 'remove-protection'
 export type ItemActionRequest = WorkspaceTarget & { action: ItemAction }
 interface Props {
   target: WorkspaceTarget
   name: string
   favorite?: boolean | undefined
   disabled?: boolean | undefined
+  protected?: boolean | undefined
+  locked?: boolean | undefined
+  protectionOwner?: boolean | undefined
   onAction: (request: ItemActionRequest) => void
 }
 
-function actions({ target, favorite }: Props) {
+function actions({
+  target,
+  favorite,
+  protected: isProtected,
+  locked,
+  protectionOwner,
+}: Props) {
   return [
+    ...(!isProtected
+      ? [
+          {
+            action: 'protect' as const,
+            label: 'Proteger com senha…',
+            icon: LockKeyhole,
+          },
+        ]
+      : locked
+        ? [{ action: 'unlock' as const, label: 'Desbloquear…', icon: LockOpen }]
+        : [
+            {
+              action: 'lock' as const,
+              label: 'Bloquear agora',
+              icon: LockKeyhole,
+            },
+          ]),
+    ...(isProtected && protectionOwner
+      ? [
+          {
+            action: 'remove-protection' as const,
+            label: 'Remover proteção…',
+            icon: ShieldOff,
+          },
+        ]
+      : []),
     { action: 'rename' as const, label: 'Renomear', icon: Pencil },
     { action: 'move' as const, label: 'Mover para…', icon: FolderInput },
-    { action: 'duplicate' as const, label: 'Duplicar', icon: Copy },
+    ...(!isProtected
+      ? [{ action: 'duplicate' as const, label: 'Duplicar', icon: Copy }]
+      : []),
     ...(target.kind === 'folder'
       ? [
           {
@@ -55,7 +99,7 @@ function actions({ target, favorite }: Props) {
           },
         ]
       : []),
-    ...(target.kind === 'note'
+    ...(target.kind === 'note' && !locked
       ? [
           {
             action: 'favorite' as const,

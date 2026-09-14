@@ -49,6 +49,10 @@ Select text in reading or visual-editing mode to add a yellow, green, blue, or p
 
 Create nested folders, keep several documents open in tabs, and pin favorites. When creating a folder, choose a matching location on the computer to create and connect it, or keep it only in the browser. The selected workspace folder remains its parent, so a directory created inside `docs` appears as `docs/child` in the sidebar. Existing workspace folders can be saved to a chosen computer location from their item menu. The sidebar shows standalone files and the actual folders you open, without adding a synthetic root folder. Search titles, document content, and folder paths. Rename, move, or duplicate workspace items from their menus. Deleted notes go to the trash, and document history lets you compare and restore earlier versions.
 
+### Protect private documents
+
+Protect a document or an entire folder from its item menu. DevNotes encrypts document content and revision history with AES-GCM, derives keys from the password with PBKDF2, and keeps unlocked keys only in the current page session. Folder protection covers existing descendants and new documents created while the folder is unlocked. Protected downloads and connected-folder saves retain their encrypted envelope inside the `.md` file, so other Markdown editors cannot read the content until protection is removed. Titles, filenames, and folder names remain visible. DevNotes cannot recover a forgotten password.
+
 ### Open files from Linux
 
 Double-click a Markdown file to open DevNotes in your default browser. A small local Node.js service serves the application and reads only files authorized through the launcher. An explicit file or folder opening replaces the previous tab set, while the saved browser workspace remains available in the sidebar. Saving checks for external changes before writing to the original. Dropped files and ordinary browser imports open as copies.

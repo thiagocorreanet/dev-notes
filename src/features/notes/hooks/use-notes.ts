@@ -2,7 +2,11 @@ import { applyWorkspaceAction, recordRevision } from '../workspace-actions'
 import type { WorkspaceAction } from '../workspace-actions'
 import { WorkspaceError } from '../workspace-error'
 import { useRef, useState } from 'react'
-import { loadWorkspace, persistWorkspace } from '../workspace-storage'
+import {
+  loadWorkspace,
+  persistWorkspace,
+  sanitizeWorkspace,
+} from '../workspace-storage'
 import type { Note, Workspace, WorkspaceFolder } from '../types'
 
 export function useNotes() {
@@ -10,10 +14,11 @@ export function useNotes() {
   const current = useRef(state.workspace)
 
   function commit(workspace: Workspace) {
-    current.current = workspace
-    const saved = persistWorkspace(workspace)
+    const safe = sanitizeWorkspace(workspace)
+    current.current = safe
+    const saved = persistWorkspace(safe)
     setState({
-      workspace,
+      workspace: safe,
       error: saved
         ? null
         : 'Não foi possível salvar neste navegador. Seus documentos continuam abertos; baixe uma cópia antes de sair.',
@@ -78,6 +83,10 @@ export function useNotes() {
     })
   }
 
+  function replaceItems(notes: Note[], folders: WorkspaceFolder[]) {
+    return commit({ ...current.current, notes, folders })
+  }
+
   function runAction(action: WorkspaceAction) {
     return commit(applyWorkspaceAction(current.current, action))
   }
@@ -104,5 +113,6 @@ export function useNotes() {
     addNote,
     addFolder,
     importFolder,
+    replaceItems,
   }
 }

@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { downloadFile, markdownFilename } from '../workspace-files'
 import type { Note } from '../types'
+import { serializeProtectedMarkdown } from '../document-protection'
 
 export function SaveAsDialog({
   note,
@@ -32,8 +33,9 @@ export function SaveAsDialog({
         <DialogHeader>
           <DialogTitle>Salvar como</DialogTitle>
           <DialogDescription>
-            Baixe uma cópia em Markdown com outro nome. O navegador define o
-            destino ou pergunta onde salvar, conforme suas preferências.
+            {note.protection
+              ? 'Baixe uma cópia criptografada com outro nome. A mesma senha será necessária para abri-la.'
+              : 'Baixe uma cópia em Markdown com outro nome. O navegador define o destino ou pergunta onde salvar, conforme suas preferências.'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -55,7 +57,9 @@ export function SaveAsDialog({
             }
             downloadFile(
               /\.(md|markdown)$/i.test(filename) ? filename : `${filename}.md`,
-              `# ${note.title}\n\n${note.content}\n`,
+              note.protection
+                ? serializeProtectedMarkdown(note)
+                : `# ${note.title}\n\n${note.content}\n`,
               'text/markdown;charset=utf-8',
             )
             onClose()

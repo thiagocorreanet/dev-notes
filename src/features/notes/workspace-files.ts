@@ -1,4 +1,5 @@
 import { WorkspaceError } from './workspace-error'
+import { parseProtectedMarkdown } from './document-protection'
 import type { Note, WorkspaceFolder } from './types'
 
 export interface LocalFileHandle {
@@ -37,7 +38,7 @@ declare global {
 export interface FileSource {
   handle?: LocalFileHandle
   fileName: string
-  baseline: Pick<Note, 'title' | 'content'>
+  baseline: Pick<Note, 'title' | 'content' | 'protection'>
 }
 
 export interface ImportedFolder {
@@ -55,7 +56,9 @@ const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules'])
 export function parseMarkdownFile(
   name: string,
   text: string,
-): Pick<Note, 'title' | 'content'> {
+): Pick<Note, 'title' | 'content' | 'protection'> {
+  const protectedDocument = parseProtectedMarkdown(name, text)
+  if (protectedDocument) return protectedDocument
   const heading = /^# ([^\r\n]+)\r?\n(?:\r?\n)?/.exec(text)
   return {
     title: heading?.[1]?.trim() || name.replace(MARKDOWN_EXTENSION, ''),
@@ -124,6 +127,8 @@ export async function importDirectory(
           folderId: folder.id,
           sourcePath: `${path}/${entry.name}`,
         }
+        if (note.protection)
+          note.protection = { ...note.protection, ownerId: note.id }
         result.notes.push(note)
         result.sources.set(note.id, {
           handle: entry,
@@ -177,6 +182,8 @@ export async function importFileList(files: File[]): Promise<ImportedFolder> {
       sourcePath: path,
       ...(parentId ? { folderId: parentId } : {}),
     }
+    if (note.protection)
+      note.protection = { ...note.protection, ownerId: note.id }
     result.notes.push(note)
     result.sources.set(note.id, { fileName: file.name, baseline: parsed })
   }

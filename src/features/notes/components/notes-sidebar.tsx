@@ -8,6 +8,7 @@ import {
   FolderOpen,
   FolderPlus,
   Upload,
+  LockKeyhole,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -65,6 +66,12 @@ interface NotesSidebarProps {
     'busy' | 'canRefresh' | 'hasFolders'
   >
   onOpenFile: () => void
+  protectionOwner?: (target: {
+    kind: 'note' | 'folder'
+    id: string
+  }) => string | undefined
+  isNoteLocked?: (id: string) => boolean
+  isFolderLocked?: (id: string) => boolean
 }
 
 export function NotesSidebar({
@@ -85,6 +92,9 @@ export function NotesSidebar({
   onToggleFolder,
   actions,
   onOpenFile,
+  protectionOwner = () => undefined,
+  isNoteLocked = () => false,
+  isFolderLocked = () => false,
 }: NotesSidebarProps) {
   const { setOpenMobile, isMobile } = useSidebar()
   const search = query.trim().toLowerCase()
@@ -135,18 +145,34 @@ export function NotesSidebar({
       <>
         {childFolders.map((folder) => {
           const open = !!search || expandedFolders.has(folder.id)
+          const ownerId = protectionOwner({ kind: 'folder', id: folder.id })
+          const protectedFolder = !!ownerId
+          const locked = isFolderLocked(folder.id)
           return (
             <Collapsible
               key={folder.id}
               asChild
-              open={open}
-              onOpenChange={(next) => onToggleFolder(folder.id, next)}
+              open={locked ? false : open}
+              onOpenChange={(next) => {
+                if (locked) {
+                  onItemAction?.({
+                    kind: 'folder',
+                    id: folder.id,
+                    action: 'unlock',
+                  })
+                  return
+                }
+                onToggleFolder(folder.id, next)
+              }}
             >
               <SidebarMenuItem>
                 <ItemContextMenu
                   target={{ kind: 'folder', id: folder.id }}
                   name={folder.name}
                   disabled={busy || !onItemAction}
+                  protected={protectedFolder}
+                  locked={locked}
+                  protectionOwner={ownerId === folder.id}
                   onAction={(request) => onItemAction?.(request)}
                 >
                   <CollapsibleTrigger asChild>
@@ -166,6 +192,14 @@ export function NotesSidebar({
                         <Folder aria-hidden="true" />
                       )}
                       <span>{folder.name}</span>
+                      {protectedFolder && (
+                        <LockKeyhole
+                          className="ml-auto size-3.5"
+                          aria-label={
+                            locked ? 'Pasta bloqueada' : 'Pasta protegida'
+                          }
+                        />
+                      )}
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                 </ItemContextMenu>
@@ -174,6 +208,9 @@ export function NotesSidebar({
                     target={{ kind: 'folder', id: folder.id }}
                     name={folder.name}
                     disabled={busy}
+                    protected={protectedFolder}
+                    locked={locked}
+                    protectionOwner={ownerId === folder.id}
                     onAction={onItemAction}
                   />
                 )}
@@ -201,39 +238,58 @@ export function NotesSidebar({
             </Collapsible>
           )
         })}
-        {childNotes.map((note) => (
-          <SidebarMenuItem key={note.id}>
-            <ItemContextMenu
-              target={{ kind: 'note', id: note.id }}
-              name={note.title}
-              favorite={note.favorite}
-              disabled={busy || !onItemAction}
-              onAction={(request) => onItemAction?.(request)}
-            >
-              <SidebarMenuButton
-                isActive={note.id === activeId}
-                aria-current={note.id === activeId ? 'page' : undefined}
-                title={note.sourcePath ?? note.title}
-                onClick={() => {
-                  onSelect(note.id)
-                  setOpenMobile(false)
-                }}
-              >
-                <FileText aria-hidden="true" />
-                <span>{note.title || 'Documento sem título'}</span>
-              </SidebarMenuButton>
-            </ItemContextMenu>
-            {onItemAction && (
-              <ItemDropdown
+        {childNotes.map((note) => {
+          const ownerId = protectionOwner({ kind: 'note', id: note.id })
+          const protectedNote = !!ownerId
+          const locked = isNoteLocked(note.id)
+          return (
+            <SidebarMenuItem key={note.id}>
+              <ItemContextMenu
                 target={{ kind: 'note', id: note.id }}
-                name={note.title || 'Documento sem título'}
+                name={note.title}
                 favorite={note.favorite}
-                disabled={busy}
-                onAction={onItemAction}
-              />
-            )}
-          </SidebarMenuItem>
-        ))}
+                disabled={busy || !onItemAction}
+                protected={protectedNote}
+                locked={locked}
+                protectionOwner={ownerId === note.id}
+                onAction={(request) => onItemAction?.(request)}
+              >
+                <SidebarMenuButton
+                  isActive={note.id === activeId}
+                  aria-current={note.id === activeId ? 'page' : undefined}
+                  title={note.sourcePath ?? note.title}
+                  onClick={() => {
+                    onSelect(note.id)
+                    setOpenMobile(false)
+                  }}
+                >
+                  <FileText aria-hidden="true" />
+                  <span>{note.title || 'Documento sem título'}</span>
+                  {protectedNote && (
+                    <LockKeyhole
+                      className="ml-auto size-3.5"
+                      aria-label={
+                        locked ? 'Documento bloqueado' : 'Documento protegido'
+                      }
+                    />
+                  )}
+                </SidebarMenuButton>
+              </ItemContextMenu>
+              {onItemAction && (
+                <ItemDropdown
+                  target={{ kind: 'note', id: note.id }}
+                  name={note.title || 'Documento sem título'}
+                  favorite={note.favorite}
+                  disabled={busy}
+                  protected={protectedNote}
+                  locked={locked}
+                  protectionOwner={ownerId === note.id}
+                  onAction={onItemAction}
+                />
+              )}
+            </SidebarMenuItem>
+          )
+        })}
         {!childFolders.length && !childNotes.length && parentId && (
           <SidebarMenuItem className="px-2 py-1 text-xs text-muted-foreground">
             Pasta vazia
