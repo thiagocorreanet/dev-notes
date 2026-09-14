@@ -18,8 +18,7 @@ import {
   parseWorkspace,
   WORKSPACE_KEY,
 } from '../workspace-storage'
-import { useNotes } from '../hooks/use-notes'
-import { renderHook, act } from '@testing-library/react'
+import { loadTextHighlights } from '../text-highlights'
 
 function seed() {
   localStorage.setItem(
@@ -35,6 +34,30 @@ function seed() {
 }
 
 describe('Document workflows', () => {
+  it('keeps visual text highlights outside the Markdown content', async () => {
+    seed()
+    const user = userEvent.setup()
+    const { container } = render(<NotesPage />)
+    const passage = screen.getByText('Original text').firstChild as Text
+    const range = document.createRange()
+    range.setStart(passage, 0)
+    range.setEnd(passage, passage.length)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+
+    await user.click(screen.getByRole('button', { name: 'Marca-texto' }))
+    await user.click(screen.getByRole('button', { name: 'Amarelo' }))
+
+    expect(loadTextHighlights('a')).toEqual([
+      expect.objectContaining({ text: 'Original text', color: 'yellow' }),
+    ])
+    expect(
+      parseWorkspace(localStorage.getItem(WORKSPACE_KEY)!).notes[0]?.content,
+    ).toBe('Original text')
+    expect(container.querySelector('mark')).toBeNull()
+  })
+
   it('renames, duplicates, favorites, trashes, and restores a document through its menu', async () => {
     seed()
     const user = userEvent.setup()
@@ -135,44 +158,6 @@ describe('Document workflows', () => {
     const note = parseWorkspace(localStorage.getItem(WORKSPACE_KEY)!).notes[0]!
     expect(note.revisions?.[0]?.content).toBe('Changed text')
   }, 15000)
-
-  it('keeps favorites, trash, revisions, images, and internal links when exporting and merging a backup', () => {
-    const image = '![Screenshot](data:image/png;base64,eA==)'
-    const { result } = renderHook(useNotes)
-    let firstId = ''
-    let secondId = ''
-    act(() => {
-      firstId = result.current.addNote('First', image).id
-      secondId = result.current.addNote(
-        'Second',
-        `[First](#note/${firstId})`,
-      ).id
-    })
-    act(() => {
-      result.current.runAction({ kind: 'note', id: firstId, type: 'favorite' })
-      result.current.runAction({
-        kind: 'note',
-        id: firstId,
-        type: 'rename',
-        name: 'Renamed',
-      })
-      result.current.runAction({ kind: 'note', id: firstId, type: 'trash' })
-    })
-    const backup = parseWorkspace(localStorage.getItem(WORKSPACE_KEY)!)
-    let imported: ReturnType<typeof result.current.mergeWorkspace> | undefined
-    act(() => {
-      imported = result.current.mergeWorkspace(backup)
-    })
-    const restored = imported!.notes.find((note) => note.title === 'Renamed')!
-    expect(restored).toMatchObject({ content: image, favorite: true })
-    expect(restored.deletedAt).toBeTruthy()
-    expect(restored.revisions?.[0]?.title).toBe('First')
-    expect(restored.id).not.toBe(firstId)
-    expect(
-      imported!.notes.find((note) => note.title === 'Second')?.content,
-    ).toBe(`[First](#note/${restored.id})`)
-    expect(result.current.notes.some((note) => note.id === secondId)).toBe(true)
-  })
 })
 
 describe('Writing tools', () => {

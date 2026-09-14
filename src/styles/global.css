@@ -101,6 +101,10 @@
   --sidebar-accent-foreground: #1d4ed8;
   --sidebar-border: #e2e8f0;
   --sidebar-ring: #3882f6;
+  --text-highlight-yellow: rgb(253 224 71 / 0.58);
+  --text-highlight-green: rgb(134 239 172 / 0.52);
+  --text-highlight-blue: rgb(147 197 253 / 0.52);
+  --text-highlight-pink: rgb(249 168 212 / 0.52);
 }
 
 .dark {
@@ -137,6 +141,10 @@
   --sidebar-accent-foreground: #eff6ff;
   --sidebar-border: #334155;
   --sidebar-ring: #60a5fa;
+  --text-highlight-yellow: rgb(250 204 21 / 0.38);
+  --text-highlight-green: rgb(74 222 128 / 0.34);
+  --text-highlight-blue: rgb(96 165 250 / 0.38);
+  --text-highlight-pink: rgb(244 114 182 / 0.36);
 }
 
 @layer base {
@@ -160,6 +168,18 @@
   ::highlight(document-search-active) {
     background-color: var(--primary);
     color: var(--primary-foreground);
+  }
+  ::highlight(devnotes-text-highlight-yellow) {
+    background-color: var(--text-highlight-yellow);
+  }
+  ::highlight(devnotes-text-highlight-green) {
+    background-color: var(--text-highlight-green);
+  }
+  ::highlight(devnotes-text-highlight-blue) {
+    background-color: var(--text-highlight-blue);
+  }
+  ::highlight(devnotes-text-highlight-pink) {
+    background-color: var(--text-highlight-pink);
   }
   .visual-document {
     overflow-wrap: anywhere;

@@ -1,4 +1,3 @@
-import { BackupDialog } from './backup-dialog'
 import { SaveDestination } from './save-destination'
 import { useAppearance } from '../hooks/use-appearance'
 import { useReadingPosition } from '../hooks/use-reading-position'
@@ -88,6 +87,7 @@ import { DocumentPresentation } from './document-presentation'
 import { PrintDocument } from './print-document'
 import { SaveAsDialog } from './save-as-dialog'
 import { ResizableWorkspace } from './resizable-workspace'
+import { TextHighlighter } from './text-highlighter'
 
 function downloadNote(note: Note) {
   downloadFile(
@@ -155,7 +155,7 @@ function NoteEditor({
         {local
           ? 'Use Salvar ou Ctrl/Cmd+S para gravar as alterações no arquivo original.'
           : temporary
-            ? 'Documento temporário. Salve o espaço de trabalho para guardar suas alterações.'
+            ? 'Documento temporário. Salve a página para guardar suas alterações neste navegador.'
             : 'As alterações são salvas automaticamente neste navegador.'}
       </p>
     </section>
@@ -181,6 +181,10 @@ export function NotesPage() {
   const [showTrash, setShowTrash] = useState(false)
   const [managementError, setManagementError] = useState('')
   function requestItemAction(request: ItemActionRequest) {
+    if (request.action === 'save-folder') {
+      void workspace.localFolder.saveWorkspaceFolder(request.id)
+      return
+    }
     if (
       request.action === 'rename' ||
       request.action === 'move' ||
@@ -264,7 +268,6 @@ export function NotesPage() {
     | 'tasks'
     | 'local-folder'
     | 'appearance'
-    | 'backup'
     | null
   >(null)
   const [taskTarget, setTaskTarget] = useState<NoteTask | null>(null)
@@ -300,7 +303,6 @@ export function NotesPage() {
   }
 
   const commandActions: Record<EditorCommandId, () => void> = {
-    'import-backup': () => showPanel('backup'),
     appearance: () => showPanel('appearance'),
     focus: () => setFocusMode((current) => !current),
     tasks: () => showPanel('tasks'),
@@ -318,7 +320,6 @@ export function NotesPage() {
       void workspace.openFolder()
     },
     'open-file': () => fileInputRef.current?.click(),
-    'save-workspace': workspace.saveWorkspace,
     'save-page': () => {
       void workspace.savePage()
     },
@@ -410,13 +411,6 @@ export function NotesPage() {
       }}
     >
       <div className={dark ? 'dark' : undefined} data-focus-mode={focusMode}>
-        {panel === 'backup' && (
-          <BackupDialog
-            onImport={workspace.importBackup}
-            onDownloadCurrent={workspace.downloadCurrentBackup}
-            onClose={() => setPanel(null)}
-          />
-        )}
         <MarkdownDropZone
           busy={workspace.busy}
           onFiles={workspace.openDroppedFiles}
@@ -458,8 +452,6 @@ export function NotesPage() {
                     onOpenFolder: () => {
                       void workspace.openFolder()
                     },
-                    onSaveWorkspace: workspace.saveWorkspace,
-                    onImportBackup: () => showPanel('backup'),
                   }}
                 />
               }
@@ -770,6 +762,13 @@ export function NotesPage() {
                           >
                             <History aria-hidden="true" />
                           </Button>
+                          <TextHighlighter
+                            key={activeNote.id}
+                            documentId={activeNote.id}
+                            content={activeNote.content}
+                            view={mode}
+                            disabled={workspace.busy}
+                          />
                           <TabsList
                             aria-label="Visualização do documento"
                             className="max-w-full [&_svg]:hidden sm:[&_svg]:block"
@@ -981,7 +980,13 @@ export function NotesPage() {
                 if (!open) workspace.setDialog(null)
               }}
             >
-              <DialogContent className="max-h-[90svh] overflow-y-auto">
+              <DialogContent
+                className={
+                  workspace.dialog === 'folder'
+                    ? 'max-h-[90svh] min-w-0 overflow-x-hidden overflow-y-auto sm:max-w-lg'
+                    : 'max-h-[90svh] min-w-0 overflow-x-hidden overflow-y-auto'
+                }
+              >
                 <DialogHeader>
                   <DialogTitle>
                     {workspace.dialog === 'folder'
@@ -989,11 +994,28 @@ export function NotesPage() {
                       : 'Nova página'}
                   </DialogTitle>
                   <DialogDescription>
-                    Local: {location}. O conteúdo fica salvo neste navegador.
+                    {workspace.dialog === 'folder'
+                      ? workspace.selectedFolder
+                        ? `A nova pasta ficará dentro de ${location}. Escolha essa mesma pasta no computador como destino.`
+                        : 'Escolha onde a nova pasta será criada.'
+                      : `Local: ${location}. O conteúdo fica salvo neste navegador.`}
                   </DialogDescription>
                 </DialogHeader>
                 {workspace.dialog === 'folder' ? (
-                  <FolderForm onCreate={workspace.createFolder} />
+                  <FolderForm
+                    busy={workspace.busy}
+                    computerError={workspace.localFolder.error}
+                    computerSupported={!!window.showDirectoryPicker}
+                    onCreateInBrowser={workspace.createFolder}
+                    onCreateOnComputer={async (name) => {
+                      const created = await workspace.localFolder.create(
+                        name,
+                        workspace.selectedFolder,
+                      )
+                      if (created) workspace.setDialog(null)
+                      return created
+                    }}
+                  />
                 ) : (
                   <NoteForm onAdd={workspace.createPage} />
                 )}

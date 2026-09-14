@@ -1,9 +1,7 @@
 import { applyWorkspaceAction } from '../workspace-actions'
-import { prepareWorkspaceBackup } from '../workspace-backup'
-import type { BackupMode } from '../workspace-backup'
-import type { Workspace } from '../types'
 import { emptyWorkspace } from '../workspace-storage'
 import { useLocalDocuments } from './use-local-documents'
+import { requestedLocalFile } from '../local-document'
 import { loadTabs, TABS_KEY } from '../workspace-tabs'
 import type { WorkspaceAction } from '../workspace-actions'
 import { WorkspaceError } from '../workspace-error'
@@ -11,7 +9,6 @@ import { useEffect, useRef, useState } from 'react'
 import { exampleNotes } from '../example-notes'
 import type { Note } from '../types'
 import {
-  downloadFile,
   importDirectory,
   importFileList,
   readMarkdownFile,
@@ -23,9 +20,13 @@ import { useLocalFolder } from './use-local-folder'
 export function useWorkspace() {
   const store = useNotes()
   const [drafts, setDrafts] = useState<Note[]>([])
-  const [initialTabs] = useState(loadTabs)
+  const [localLaunch] = useState(() => requestedLocalFile() !== null)
+  const [initialTabs] = useState(() =>
+    localLaunch ? { ids: [], activeId: null } : loadTabs(),
+  )
   const [activeId, setActiveId] = useState<string | null>(initialTabs.activeId)
   const [openIds, setOpenIds] = useState(initialTabs.ids)
+  const [emptyFolderOpen, setEmptyFolderOpen] = useState(false)
   const [selectedFolder, setSelectedFolder] = useState<string | undefined>()
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set(),
@@ -55,8 +56,9 @@ export function useWorkspace() {
   const refreshTarget = useRef<Note | null>(null)
   const sources = useRef(new Map<string, FileSource>())
   const localDocuments = useLocalDocuments((id) => {
+    setEmptyFolderOpen(false)
     setActiveId(id)
-    setOpenIds((current) => [...new Set([...current, id])])
+    setOpenIds([id])
     setMode('read')
   })
   const documents = [
@@ -74,8 +76,12 @@ export function useWorkspace() {
         !store.suppressedExampleIds.includes(example.id),
     ),
   ]
-  const activeNote = documents.find((note) => note.id === activeId) ??
-    documents[0] ?? { id: 'empty-workspace', title: '', content: '' }
+  const activeNote =
+    documents.find((note) => note.id === activeId) ??
+    (emptyFolderOpen ||
+    (localLaunch && (localDocuments.loading || localDocuments.error))
+      ? { id: 'empty-workspace', title: '', content: '' }
+      : (documents[0] ?? { id: 'empty-workspace', title: '', content: '' }))
   const isDraft = drafts.some((note) => note.id === activeNote.id)
   const isSaved = store.notes.some((note) => note.id === activeNote.id)
 
@@ -99,14 +105,16 @@ export function useWorkspace() {
     activeId: activeNote.id,
   })
   useEffect(() => {
+    if (localLaunch) return
     try {
       localStorage.setItem(TABS_KEY, tabsSnapshot)
     } catch {
       /* Document persistence reports storage failures separately. */
     }
-  }, [tabsSnapshot])
+  }, [localLaunch, tabsSnapshot])
 
   function activate(id: string | null) {
+    if (id) setEmptyFolderOpen(false)
     setActiveId(id)
     if (id)
       setOpenIds((current) => [...new Set([...current, activeNote.id, id])])
@@ -209,7 +217,7 @@ export function useWorkspace() {
     setQuery('')
     setMode('edit')
     setMessage(
-      'Documento temporário criado. Salve o espaço de trabalho para guardá-lo.',
+      'Documento temporário criado. Salve a página para guardá-lo neste navegador.',
     )
   }
 
@@ -281,7 +289,7 @@ export function useWorkspace() {
     setMessage(`Pasta "${folder.name}" criada.`)
   }
 
-  function finishImport(result: ImportedFolder) {
+  function finishImport(result: ImportedFolder, openAll = false) {
     store.importFolder(result.notes, result.folders)
     for (const [id, source] of result.sources) sources.current.set(id, source)
     setExpandedFolders(
@@ -289,7 +297,12 @@ export function useWorkspace() {
         new Set([...current, ...result.folders.map((folder) => folder.id)]),
     )
     setSelectedFolder(result.folders[0]?.id)
-    if (result.notes[0]) activate(result.notes[0].id)
+    const first = result.notes[0]
+    setEmptyFolderOpen(!first)
+    setActiveId(first?.id ?? null)
+    setOpenIds(
+      openAll ? result.notes.map((note) => note.id) : first ? [first.id] : [],
+    )
     setQuery('')
     setMessage(
       `Importação concluída: ${result.folders.length} ${result.folders.length === 1 ? 'pasta' : 'pastas'} e ${result.notes.length} ${result.notes.length === 1 ? 'arquivo Markdown' : 'arquivos Markdown'}. Os arquivos originais não foram alterados.`,
@@ -335,7 +348,9 @@ export function useWorkspace() {
       const note = { id: crypto.randomUUID(), ...parsed, sourcePath: file.name }
       store.saveNote(note)
       sources.current.set(note.id, { fileName: file.name, baseline: parsed })
-      activate(note.id)
+      setEmptyFolderOpen(false)
+      setActiveId(note.id)
+      setOpenIds([note.id])
       setSelectedFolder(undefined)
       setQuery('')
       setMode('read')
@@ -361,27 +376,11 @@ export function useWorkspace() {
         throw new WorkspaceError(
           'Solte até 100 arquivos, com no máximo 20 MB no total.',
         )
-      const notes = await Promise.all(
-        files.map(async (file) => ({
-          id: crypto.randomUUID(),
-          ...(await readMarkdownFile(file)),
-          sourcePath: file.name,
-        })),
-      )
-      store.importFolder(notes, [])
-      for (const note of notes)
-        sources.current.set(note.id, {
-          fileName: note.sourcePath,
-          baseline: note,
-        })
-      setOpenIds((current) => [
-        ...new Set([
-          ...current,
-          activeNote.id,
-          ...notes.map((note) => note.id),
-        ]),
-      ])
-      if (notes[0]) activate(notes[0].id)
+      if (files.some((file) => !/\.(md|markdown)$/i.test(file.name)))
+        throw new WorkspaceError('Selecione apenas arquivos Markdown.')
+      const result = await importFileList(files)
+      finishImport(result, true)
+      const notes = result.notes
       setSelectedFolder(undefined)
       setQuery('')
       setMode('read')
@@ -467,22 +466,6 @@ export function useWorkspace() {
     }
   }
 
-  function saveWorkspace() {
-    setActionError(null)
-    try {
-      const workspace = store.saveAll(documents)
-      setDrafts([])
-      downloadFile(
-        'dev-notes-workspace.json',
-        JSON.stringify(workspace, null, 2),
-        'application/json',
-      )
-      setMessage('Backup baixado com todos os documentos e pastas.')
-    } catch (error) {
-      reportError(error)
-    }
-  }
-
   function toggleFolder(id: string, open: boolean) {
     setSelectedFolder(id)
     setExpandedFolders((current) => {
@@ -502,84 +485,22 @@ export function useWorkspace() {
       return saved
     },
     importFolder: store.importFolder,
+    onConnect: (ids, folderId) => {
+      if (ids[0]) {
+        setEmptyFolderOpen(false)
+        setActiveId(ids[0])
+        setOpenIds([ids[0]])
+        setMode('read')
+      }
+      if (folderId) {
+        setSelectedFolder(folderId)
+        setExpandedFolders((current) => new Set([...current, folderId]))
+      }
+    },
   })
-
-  function backupSnapshot(): Workspace {
-    return {
-      ...emptyWorkspace(),
-      name: store.workspaceName,
-      suppressedExampleIds: store.suppressedExampleIds,
-      folders: store.folders,
-      notes: [
-        ...documents,
-        ...store.notes.filter(
-          (note) =>
-            note.deletedAt && !documents.some((item) => item.id === note.id),
-        ),
-      ],
-    }
-  }
-
-  function importBackup(
-    incoming: Workspace,
-    mode: BackupMode,
-    expectedStored: string | null,
-  ) {
-    if (
-      busy ||
-      localFolder.busy ||
-      localDocuments.busy ||
-      pageSaveInProgress.current ||
-      localDocuments.recovery
-    )
-      throw new WorkspaceError(
-        'Aguarde a operação atual antes de importar o backup.',
-      )
-    const next = prepareWorkspaceBackup(
-      backupSnapshot(),
-      incoming,
-      mode,
-      exampleNotes.map((note) => note.id),
-    )
-    store.replaceFromBackup(next, expectedStored)
-    setDrafts([])
-    if (mode === 'replace') {
-      localFolder.disconnect()
-      sources.current.clear()
-      localDocuments.reconcile(
-        localDocuments.notes.map((note) => {
-          const copy = { ...note }
-          delete copy.folderId
-          return copy
-        }),
-      )
-    }
-    setQuery('')
-    setSelectedFolder(undefined)
-    setExpandedFolders(new Set())
-    const first = next.notes.find(
-      (note) =>
-        !note.deletedAt &&
-        (mode === 'replace' || !documents.some((item) => item.id === note.id)),
-    )
-    setActiveId(first?.id ?? null)
-    setOpenIds(first ? [first.id] : [])
-    setMode('read')
-    setActionError(null)
-    setMessage(
-      'Backup importado neste navegador. Os arquivos originais no computador não foram alterados.',
-    )
-  }
 
   return {
     ...store,
-    importBackup,
-    downloadCurrentBackup: () =>
-      downloadFile(
-        'devnotes-before-import.json',
-        JSON.stringify(backupSnapshot(), null, 2),
-        'application/json',
-      ),
     localFolder,
     localDocuments,
     restoreRevision: (id: string, revisionId: string) => {
@@ -628,10 +549,12 @@ export function useWorkspace() {
       saveFeedback?.phase === 'saving' ||
       !!localDocuments.recovery,
     message:
-      localDocuments.has(activeNote.id) || localDocuments.error
+      localFolder.message ||
+      (localDocuments.has(activeNote.id) || localDocuments.error
         ? localDocuments.message
-        : message,
-    error: actionError ?? localDocuments.error ?? store.error,
+        : message),
+    error:
+      actionError || localFolder.error || localDocuments.error || store.error,
     selectNote,
     openSearchResult,
     newDocument,
@@ -648,7 +571,6 @@ export function useWorkspace() {
     refreshFromSelection,
     refreshConfirmation,
     setRefreshConfirmation,
-    saveWorkspace,
     directoryInput,
     refreshInput,
     fileInput,

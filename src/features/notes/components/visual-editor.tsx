@@ -355,7 +355,7 @@ function EditableDocument({
           <AlertDescription>{pasteError}</AlertDescription>
         </Alert>
       )}
-      <EditorContent editor={editor} />
+      <EditorContent editor={editor} data-highlight-root />
       <p className="text-xs text-muted-foreground">
         Selecione o texto para formatar. Use Tab para passar de uma célula a
         outra na tabela.

@@ -3,6 +3,7 @@ import {
   Copy,
   Ellipsis,
   FolderInput,
+  HardDriveDownload,
   History,
   Pencil,
   Star,
@@ -24,7 +25,13 @@ import { SidebarMenuAction } from '@/components/ui/sidebar'
 import type { WorkspaceTarget } from '../workspace-actions'
 
 export type ItemAction =
-  'rename' | 'move' | 'duplicate' | 'trash' | 'favorite' | 'history'
+  | 'rename'
+  | 'move'
+  | 'duplicate'
+  | 'trash'
+  | 'favorite'
+  | 'history'
+  | 'save-folder'
 export type ItemActionRequest = WorkspaceTarget & { action: ItemAction }
 interface Props {
   target: WorkspaceTarget
@@ -39,6 +46,15 @@ function actions({ target, favorite }: Props) {
     { action: 'rename' as const, label: 'Renomear', icon: Pencil },
     { action: 'move' as const, label: 'Mover para…', icon: FolderInput },
     { action: 'duplicate' as const, label: 'Duplicar', icon: Copy },
+    ...(target.kind === 'folder'
+      ? [
+          {
+            action: 'save-folder' as const,
+            label: 'Salvar no computador…',
+            icon: HardDriveDownload,
+          },
+        ]
+      : []),
     ...(target.kind === 'note'
       ? [
           {

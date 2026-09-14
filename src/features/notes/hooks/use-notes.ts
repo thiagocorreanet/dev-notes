@@ -1,13 +1,8 @@
 import { applyWorkspaceAction, recordRevision } from '../workspace-actions'
 import type { WorkspaceAction } from '../workspace-actions'
-import { remapNoteLinks } from '../note-links'
 import { WorkspaceError } from '../workspace-error'
 import { useRef, useState } from 'react'
-import {
-  loadWorkspace,
-  persistWorkspace,
-  WORKSPACE_KEY,
-} from '../workspace-storage'
+import { loadWorkspace, persistWorkspace } from '../workspace-storage'
 import type { Note, Workspace, WorkspaceFolder } from '../types'
 
 export function useNotes() {
@@ -74,47 +69,6 @@ export function useNotes() {
     return folder
   }
 
-  function mergeWorkspace(incoming: Workspace) {
-    const workspace = current.current
-    const ids = new Map(
-      [...incoming.folders, ...incoming.notes].map((item) => [
-        item.id,
-        crypto.randomUUID(),
-      ]),
-    )
-    const folders = incoming.folders.map((folder) => ({
-      ...folder,
-      id: ids.get(folder.id)!,
-      ...(folder.parentId ? { parentId: ids.get(folder.parentId)! } : {}),
-    }))
-    const notes = incoming.notes.map((note) => ({
-      ...note,
-      content: remapNoteLinks(note.content, ids),
-      ...(note.revisions
-        ? {
-            revisions: note.revisions.map((revision) => ({
-              ...revision,
-              content: remapNoteLinks(revision.content, ids),
-            })),
-          }
-        : {}),
-      id: ids.get(note.id)!,
-      ...(note.folderId ? { folderId: ids.get(note.folderId)! } : {}),
-    }))
-    commit({
-      ...workspace,
-      suppressedExampleIds: [
-        ...new Set([
-          ...(workspace.suppressedExampleIds ?? []),
-          ...(incoming.suppressedExampleIds ?? []),
-        ]),
-      ],
-      folders: [...workspace.folders, ...folders],
-      notes: [...notes, ...workspace.notes],
-    })
-    return { notes, folders }
-  }
-
   function importFolder(notes: Note[], folders: WorkspaceFolder[]) {
     const workspace = current.current
     commit({
@@ -122,21 +76,6 @@ export function useNotes() {
       notes: [...notes, ...workspace.notes],
       folders: [...workspace.folders, ...folders],
     })
-  }
-
-  function saveAll(notes: Note[]) {
-    const workspace = {
-      ...current.current,
-      notes: [
-        ...notes,
-        ...current.current.notes.filter(
-          (note) =>
-            note.deletedAt && !notes.some((value) => value.id === note.id),
-        ),
-      ],
-    }
-    commit(workspace)
-    return workspace
   }
 
   function runAction(action: WorkspaceAction) {
@@ -154,36 +93,16 @@ export function useNotes() {
     )
   }
 
-  function replaceFromBackup(
-    workspace: Workspace,
-    expectedStored: string | null,
-  ) {
-    if (localStorage.getItem(WORKSPACE_KEY) !== expectedStored)
-      throw new WorkspaceError(
-        'O espaço de trabalho mudou em outra aba. Abra o backup novamente para conferir a importação.',
-      )
-    if (!persistWorkspace(workspace))
-      throw new WorkspaceError(
-        'Não há espaço disponível para importar o backup. Seus documentos atuais foram mantidos.',
-      )
-    current.current = workspace
-    setState({ workspace, error: null })
-  }
-
   return {
-    replaceFromBackup,
     runAction,
     restoreRevision,
     suppressedExampleIds: state.workspace.suppressedExampleIds ?? [],
     notes: state.workspace.notes,
     folders: state.workspace.folders,
-    workspaceName: state.workspace.name,
     error: state.error,
     saveNote,
     addNote,
     addFolder,
     importFolder,
-    saveAll,
-    mergeWorkspace,
   }
 }

@@ -76,25 +76,9 @@ export async function readMarkdownFile(file: File) {
 }
 
 function finishDirectoryImport(result: ImportedFolder): ImportedFolder {
-  if (!result.notes.length)
-    throw new WorkspaceError(
-      'Esta pasta não contém arquivos Markdown (.md ou .markdown). Selecione outra pasta.',
-    )
-  const foldersById = new Map(
-    result.folders.map((folder) => [folder.id, folder]),
-  )
-  const includedFolders = new Set<string>()
-  for (const note of result.notes) {
-    let folderId = note.folderId
-    while (folderId && !includedFolders.has(folderId)) {
-      includedFolders.add(folderId)
-      folderId = foldersById.get(folderId)?.parentId
-    }
-  }
-  return {
-    ...result,
-    folders: result.folders.filter((folder) => includedFolders.has(folder.id)),
-  }
+  if (!result.notes.length && !result.folders.length)
+    throw new WorkspaceError('Nenhuma pasta ou arquivo Markdown pôde ser lido.')
+  return result
 }
 
 export async function importDirectory(
@@ -165,7 +149,6 @@ export async function importFileList(files: File[]): Promise<ImportedFolder> {
     const path = file.webkitRelativePath || file.name
     const parts = path.split('/')
     if (parts.some((part) => IGNORED_DIRECTORIES.has(part))) continue
-    if (!MARKDOWN_EXTENSION.test(file.name)) continue
     let parentId: string | undefined
     for (let index = 0; index < parts.length - 1; index++) {
       const folderPath = parts.slice(0, index + 1).join('/')
@@ -181,6 +164,7 @@ export async function importFileList(files: File[]): Promise<ImportedFolder> {
       }
       parentId = id
     }
+    if (!MARKDOWN_EXTENSION.test(file.name)) continue
     totalBytes += file.size
     if (totalBytes > MAX_TOTAL_BYTES)
       throw new WorkspaceError(

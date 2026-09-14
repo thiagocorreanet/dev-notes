@@ -2,14 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NotesPage } from './notes-page'
-import { downloadFile } from '../workspace-files'
 import type { LocalDirectoryHandle, LocalFileHandle } from '../workspace-files'
 import { parseWorkspace, WORKSPACE_KEY } from '../workspace-storage'
-
-vi.mock('../workspace-files', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../workspace-files')>()
-  return { ...original, downloadFile: vi.fn() }
-})
+import { localFolderFixture } from '@/test/local-folder-fixture'
 
 afterEach(() => {
   delete window.showDirectoryPicker
@@ -272,45 +267,70 @@ describe('Notes workspace', () => {
 })
 
 describe('Workspace toolbar', () => {
-  it('keeps new documents temporary until Save workspace, then exports and restores them', async () => {
+  it('creates a computer folder under the selected workspace folder', async () => {
+    const fixture = localFolderFixture()
+    window.showDirectoryPicker = vi.fn().mockResolvedValue(fixture.root)
     const user = userEvent.setup()
-    const { unmount } = render(<NotesPage />)
-    await user.click(screen.getByRole('button', { name: 'Novo documento' }))
-    await user.click(screen.getByRole('tab', { name: 'Markdown' }))
-    await user.type(screen.getByLabelText('Título'), 'Temporary idea')
-    await user.type(
-      screen.getByRole('textbox', { name: 'Markdown' }),
-      'Keep this draft',
-    )
-    expect(localStorage.getItem(WORKSPACE_KEY)).toBeNull()
-    await user.click(
-      screen.getByRole('button', { name: 'Salvar espaço de trabalho' }),
-    )
-    const exported = vi.mocked(downloadFile).mock.calls.at(-1)
-    expect(exported?.[0]).toBe('dev-notes-workspace.json')
-    const backup = parseWorkspace(exported?.[1] ?? '')
-    expect(backup.notes.some((note) => note.title === 'Temporary idea')).toBe(
-      true,
-    )
-    unmount()
     render(<NotesPage />)
-    expect(
-      screen.getByRole('heading', { name: 'Temporary idea' }),
-    ).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Nova pasta' }))
+    await user.type(screen.getByLabelText('Nome da pasta'), 'docs')
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Criar somente neste navegador',
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Nova pasta em docs' }))
+    await user.type(screen.getByLabelText('Nome da pasta'), 'Loggiq')
+    await user.click(
+      screen.getByRole('button', { name: 'Escolher local e criar' }),
+    )
+    await waitFor(() => {
+      const saved = parseWorkspace(localStorage.getItem(WORKSPACE_KEY) ?? '')
+      const docs = saved.folders.find((folder) => folder.name === 'docs')
+      const loggiq = saved.folders.find((folder) => folder.name === 'Loggiq')
+      expect(loggiq?.parentId).toBe(docs?.id)
+    })
+    expect(fixture.directories.has('Loggiq')).toBe(true)
   })
 
   it('creates nested folders and pages, collapses all, and restores the hierarchy', async () => {
     const user = userEvent.setup()
     const { unmount } = render(<NotesPage />)
     await user.click(screen.getByRole('button', { name: 'Nova pasta' }))
+    expect(screen.getByRole('dialog')).toHaveClass(
+      'overflow-x-hidden',
+      'sm:max-w-lg',
+    )
+    expect(
+      screen.getByText(
+        'Cria uma pasta real dentro do local que você escolher.',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        'Mantém a pasta neste navegador, sem criar arquivos no computador.',
+      ),
+    ).toBeVisible()
     await user.type(screen.getByLabelText('Nome da pasta'), 'Engineering')
-    await user.click(screen.getByRole('button', { name: 'Criar pasta' }))
-    await user.click(screen.getByRole('button', { name: 'Pasta principal' }))
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Criar somente neste navegador',
+      }),
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Selecionar raiz do espaço de trabalho',
+      }),
+    )
     await user.click(
       screen.getByRole('button', { name: 'Nova pasta em Engineering' }),
     )
     await user.type(screen.getByLabelText('Nome da pasta'), 'Decisions')
-    await user.click(screen.getByRole('button', { name: 'Criar pasta' }))
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Criar somente neste navegador',
+      }),
+    )
     await addNote('ADR', 'A design decision')
     const saved = parseWorkspace(localStorage.getItem(WORKSPACE_KEY) ?? '')
     const parent = saved.folders.find((folder) => folder.name === 'Engineering')
@@ -327,6 +347,26 @@ describe('Workspace toolbar', () => {
     await user.click(screen.getByRole('button', { name: 'Pasta: Engineering' }))
     await user.click(screen.getByRole('button', { name: 'Pasta: Decisions' }))
     expect(screen.getByRole('button', { name: 'ADR' })).toBeVisible()
+  })
+
+  it('opens an empty folder without opening an unrelated document', async () => {
+    window.showDirectoryPicker = vi.fn().mockResolvedValue({
+      kind: 'directory',
+      name: 'Empty',
+      values: async function* () {
+        yield* await Promise.resolve([])
+      },
+    } satisfies LocalDirectoryHandle)
+    const user = userEvent.setup()
+    render(<NotesPage />)
+    await user.click(screen.getByRole('button', { name: 'Abrir pasta' }))
+    expect(
+      await screen.findByRole('button', { name: 'Pasta: Empty' }),
+    ).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('tab', { name: /^Abrir aba / }),
+    ).not.toBeInTheDocument()
   })
 
   it('opens a folder and confirms before refreshing over workspace edits', async () => {
@@ -398,7 +438,12 @@ describe('Workspace toolbar', () => {
     expect(saved.folders.map((folder) => folder.name)).toEqual([
       'Folder',
       'sub',
+      'config',
     ])
+    expect(
+      screen.queryByRole('tab', { name: 'Abrir aba Existing note' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByRole('tab', { name: /^Abrir aba / })).toHaveLength(1)
   })
 
   it('rejects non-Markdown files even when the file picker filter is bypassed', async () => {
@@ -408,33 +453,36 @@ describe('Workspace toolbar', () => {
     const user = userEvent.setup({ applyAccept: false })
     await user.upload(
       screen.getByLabelText('Selecionar arquivo Markdown'),
-      markdownFile('backup.json', '{}'),
+      markdownFile('notes.json', '{}'),
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Selecione um arquivo Markdown (.md ou .markdown).',
     )
     expect(localStorage.getItem(WORKSPACE_KEY)).toBe(saved)
     expect(screen.getByRole('heading', { name: 'Existing note' })).toBeVisible()
-    expect(screen.queryByText('Abrir backup')).not.toBeInTheDocument()
-    expect(
-      screen.queryByLabelText('Selecionar backup do espaço de trabalho'),
-    ).not.toBeInTheDocument()
   })
 
-  it('leaves the workspace untouched when a folder contains no Markdown files', async () => {
+  it('opens a folder without Markdown files and ignores its other files', async () => {
     render(<NotesPage />)
     await addNote('Existing note', 'Keep me')
-    const saved = localStorage.getItem(WORKSPACE_KEY)
     const user = userEvent.setup()
     await user.upload(
       screen.getByLabelText('Selecionar pasta'),
       markdownFile('image.png', 'ignored', 'Images/image.png'),
     )
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Esta pasta não contém arquivos Markdown',
-    )
-    expect(localStorage.getItem(WORKSPACE_KEY)).toBe(saved)
-    expect(screen.getByRole('heading', { name: 'Existing note' })).toBeVisible()
+    expect(
+      await screen.findByRole('button', { name: 'Pasta: Images' }),
+    ).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    const saved = parseWorkspace(localStorage.getItem(WORKSPACE_KEY) ?? '')
+    expect(saved.folders.map((folder) => folder.name)).toEqual(['Images'])
+    expect(saved.notes.map((note) => note.title)).toEqual(['Existing note'])
+    expect(
+      screen.queryByRole('tab', { name: 'Abrir aba Existing note' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Existing note' }),
+    ).not.toBeInTheDocument()
   })
 
   it.each([

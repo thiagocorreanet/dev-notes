@@ -84,5 +84,5 @@ export function localFolderFixture(initial: Record<string, string> = {}) {
       },
     }
   }
-  return { root: directory(''), disk, writes }
+  return { root: directory(''), disk, directories, writes }
 }

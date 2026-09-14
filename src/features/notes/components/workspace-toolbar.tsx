@@ -1,11 +1,9 @@
 import {
   FilePlus2,
-  FolderInput,
   FolderOpen,
   FolderPlus,
   ListCollapse,
   RefreshCw,
-  Save,
   StickyNote,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -25,22 +23,10 @@ interface WorkspaceToolbarProps {
   onRefresh: () => void
   onCollapseAll: () => void
   onOpenFolder: () => void
-  onSaveWorkspace: () => void
-  onImportBackup?: () => void
 }
 
 export function WorkspaceToolbar(props: WorkspaceToolbarProps) {
   const actions = [
-    ...(props.onImportBackup
-      ? [
-          {
-            label: 'Importar backup',
-            description: 'Mesclar ou restaurar um backup JSON',
-            icon: FolderInput,
-            onClick: props.onImportBackup,
-          },
-        ]
-      : []),
     {
       label: 'Novo documento',
       description: 'Criar documento temporário (ainda não salvo)',
@@ -55,7 +41,7 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps) {
     },
     {
       label: 'Nova pasta',
-      description: 'Criar pasta no local selecionado',
+      description: 'Criar uma pasta e escolher onde salvá-la',
       icon: FolderPlus,
       onClick: props.onNewFolder,
     },
@@ -80,13 +66,6 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps) {
       description: 'Importar arquivos Markdown de uma pasta',
       icon: FolderOpen,
       onClick: props.onOpenFolder,
-    },
-    {
-      label: 'Salvar espaço de trabalho',
-      description:
-        'Salvar todos os documentos e baixar um backup do espaço de trabalho',
-      icon: Save,
-      onClick: props.onSaveWorkspace,
     },
   ]
   return (

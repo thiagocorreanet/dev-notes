@@ -3,6 +3,7 @@ import type { Note, WorkspaceFolder } from '../types'
 import type { LocalDirectoryHandle } from '../workspace-files'
 import { parseMarkdownFile } from '../workspace-files'
 import { folderPath } from '../note-tasks'
+import { descendantFolderIds } from '../workspace-actions'
 import { WorkspaceError } from '../workspace-error'
 import {
   FileChangedError,
@@ -18,6 +19,7 @@ import type { DiskFile, SyncedFile } from '../local-folder'
 
 interface Connection {
   root: LocalDirectoryHandle
+  folderId: string
   files: SyncedFile[]
 }
 
@@ -26,11 +28,13 @@ export function useLocalFolder({
   folders,
   saveNote,
   importFolder,
+  onConnect,
 }: {
   notes: Note[]
   folders: WorkspaceFolder[]
   saveNote: (note: Note, forceRevision?: boolean) => boolean
   importFolder: (notes: Note[], folders: WorkspaceFolder[]) => void
+  onConnect: (noteIds: string[], folderId?: string) => void
 }) {
   const [connection, setConnection] = useState<Connection | null>(null)
   const [busy, setBusy] = useState(false)
@@ -39,13 +43,14 @@ export function useLocalFolder({
   const running = useRef(false)
 
   async function run(action: () => Promise<void>) {
-    if (running.current) return
+    if (running.current) return false
     running.current = true
     setBusy(true)
     setError('')
     setMessage('')
     try {
       await action()
+      return true
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
         setError(
@@ -54,10 +59,37 @@ export function useLocalFolder({
             : 'Não foi possível acessar a pasta. Confira a permissão do navegador e tente novamente.',
         )
       }
+      return false
     } finally {
       running.current = false
       setBusy(false)
     }
+  }
+
+  async function createDirectory(parent: LocalDirectoryHandle, name: string) {
+    if (!parent.getDirectoryHandle)
+      throw new WorkspaceError(
+        'Este navegador não permite criar uma pasta neste local.',
+      )
+    try {
+      await parent.getDirectoryHandle(name)
+      throw new WorkspaceError(
+        `Já existe uma pasta chamada "${name}" no local escolhido. Escolha outro local ou abra a pasta existente.`,
+      )
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'NotFoundError'))
+        throw error
+    }
+    return parent.getDirectoryHandle(name, { create: true })
+  }
+
+  async function chooseNewDirectory(name: string) {
+    if (!window.showDirectoryPicker)
+      throw new WorkspaceError(
+        'Este navegador não permite escolher um local com gravação.',
+      )
+    const parent = await window.showDirectoryPicker({ mode: 'readwrite' })
+    return createDirectory(parent, name)
   }
 
   function updateEntry(entry: SyncedFile) {
@@ -78,6 +110,7 @@ export function useLocalFolder({
     root: LocalDirectoryHandle,
     disk: DiskFile[],
     previous: SyncedFile[],
+    rootFolderId?: string,
   ) {
     const next: SyncedFile[] = []
     const additions: Note[] = []
@@ -85,8 +118,21 @@ export function useLocalFolder({
     const updates: Note[] = []
     const availableFolders = folders.filter((folder) => !folder.deletedAt)
     const byPath = new Map<string, string>()
-    for (const folder of availableFolders)
-      byPath.set(folderPath(folder.id, availableFolders), folder.id)
+    if (rootFolderId) {
+      const rootPath = folderPath(rootFolderId, availableFolders)
+      for (const folder of availableFolders) {
+        const path = folderPath(folder.id, availableFolders)
+        if (path === rootPath) byPath.set(root.name, folder.id)
+        else if (path.startsWith(`${rootPath}/`))
+          byPath.set(
+            `${root.name}/${path.slice(rootPath.length + 1)}`,
+            folder.id,
+          )
+      }
+    } else {
+      for (const folder of availableFolders)
+        byPath.set(folderPath(folder.id, availableFolders), folder.id)
+    }
     function ensureFolder(path: string): string {
       const known = byPath.get(path)
       if (known) return known
@@ -105,7 +151,7 @@ export function useLocalFolder({
       return folder.id
     }
     // Read and validate the complete scan before committing any workspace changes.
-    ensureFolder(root.name)
+    const connectedFolderId = ensureFolder(root.name)
     for (const item of disk) {
       const sourcePath = `${root.name}/${item.path}`
       const old = previous.find((file) => file.path === item.path)
@@ -170,10 +216,25 @@ export function useLocalFolder({
     if (newFolders.length || additions.length)
       importFolder(additions, newFolders)
     for (const note of updates) saveNote(note, true)
-    setConnection({ root, files: next })
+    setConnection({ root, folderId: connectedFolderId, files: next })
     setMessage(
       'Verificação concluída. Alterações externas sem conflito foram carregadas; confira os arquivos pendentes abaixo.',
     )
+    const visibleNotes = [...additions, ...notes].filter(
+      (note) => !note.deletedAt,
+    )
+    return {
+      folderId: connectedFolderId,
+      noteIds: [
+        ...new Set(
+          next.flatMap((file) =>
+            visibleNotes.some((note) => note.id === file.noteId)
+              ? [file.noteId]
+              : [],
+          ),
+        ),
+      ],
+    }
   }
 
   async function connect() {
@@ -183,19 +244,153 @@ export function useLocalFolder({
           'Este navegador não permite conectar uma pasta com gravação. Você pode continuar usando Abrir pasta e Baixar Markdown.',
         )
       const root = await window.showDirectoryPicker({ mode: 'readwrite' })
-      reconcile(root, await scanLocalFolder(root), [])
+      const result = reconcile(root, await scanLocalFolder(root), [])
+      onConnect(result.noteIds, result.folderId)
+    })
+  }
+
+  async function create(name: string, parentId?: string) {
+    return run(async () => {
+      if (
+        folders.some(
+          (folder) =>
+            !folder.deletedAt &&
+            folder.parentId === parentId &&
+            folder.name.toLocaleLowerCase('pt-BR') ===
+              name.toLocaleLowerCase('pt-BR'),
+        )
+      )
+        throw new WorkspaceError(
+          'Já existe uma pasta com esse nome no espaço de trabalho.',
+        )
+      const root = await chooseNewDirectory(name)
+      const folder: WorkspaceFolder = {
+        id: crypto.randomUUID(),
+        name,
+        ...(parentId ? { parentId } : {}),
+      }
+      importFolder([], [folder])
+      setConnection({ root, folderId: folder.id, files: [] })
+      onConnect([], folder.id)
+      setMessage(
+        `Pasta "${name}" criada no computador e conectada ao DevNotes.`,
+      )
+    })
+  }
+
+  async function saveWorkspaceFolder(folderId: string) {
+    return run(async () => {
+      const folder = folders.find(
+        (item) => item.id === folderId && !item.deletedAt,
+      )
+      if (!folder)
+        throw new WorkspaceError('Esta pasta não está mais disponível.')
+      const included = descendantFolderIds(
+        folders.filter((item) => !item.deletedAt),
+        folderId,
+      )
+      const folderById = new Map(folders.map((item) => [item.id, item]))
+      function relativeFolderNames(id: string) {
+        const names: string[] = []
+        const visited = new Set<string>()
+        while (id !== folderId && !visited.has(id)) {
+          visited.add(id)
+          const current = folderById.get(id)
+          if (!current) break
+          names.unshift(current.name)
+          if (!current.parentId) break
+          id = current.parentId
+        }
+        return names
+      }
+      const directoryPaths = folders
+        .filter(
+          (item) =>
+            !item.deletedAt && item.id !== folderId && included.has(item.id),
+        )
+        .map((item) => relativeFolderNames(item.id))
+        .sort((a, b) => a.length - b.length)
+      const exportedNotes = notes.filter(
+        (note) =>
+          !note.deletedAt && note.folderId && included.has(note.folderId),
+      )
+      const usedPaths = new Set<string>()
+      const files = exportedNotes.map((note) => {
+        const parentNames = relativeFolderNames(note.folderId!)
+        const base =
+          note.title
+            .replace(/[^a-zA-Z0-9_-]/g, '-')
+            .replace(/-+/g, '-')
+            .slice(0, 100) || 'documento-sem-titulo'
+        let filename = `${base}.md`
+        let index = 2
+        let path = [...parentNames, filename].join('/')
+        while (usedPaths.has(path.toLocaleLowerCase('pt-BR'))) {
+          filename = `${base}-${index++}.md`
+          path = [...parentNames, filename].join('/')
+        }
+        usedPaths.add(path.toLocaleLowerCase('pt-BR'))
+        return { note, path, content: serializeLocalNote(note) }
+      })
+      const totalBytes = files.reduce(
+        (total, file) => total + new Blob([file.content]).size,
+        0,
+      )
+      if (totalBytes > 20 * 1024 * 1024)
+        throw new WorkspaceError(
+          'A pasta ultrapassa o limite de 20 MB de arquivos Markdown.',
+        )
+      const root = await chooseNewDirectory(folder.name)
+      for (const parts of directoryPaths) {
+        let directory = root
+        for (const part of parts) {
+          if (!directory.getDirectoryHandle)
+            throw new WorkspaceError(
+              'Este navegador não permite criar subpastas neste local.',
+            )
+          directory = await directory.getDirectoryHandle(part, { create: true })
+        }
+      }
+      for (const file of files)
+        await writeLocalPath(root, file.path, file.content, null)
+      for (const file of files)
+        saveNote(
+          {
+            ...file.note,
+            sourcePath: `${root.name}/${file.path}`,
+          },
+          false,
+        )
+      setConnection({
+        root,
+        folderId: folder.id,
+        files: files.map((file) => ({
+          noteId: file.note.id,
+          path: file.path,
+          baseline: file.content,
+          disk: file.content,
+        })),
+      })
+      onConnect(
+        files.map((file) => file.note.id),
+        folder.id,
+      )
+      setMessage(
+        `Pasta "${folder.name}" salva no computador e conectada ao DevNotes.`,
+      )
     })
   }
 
   async function check() {
     if (!connection) return
-    await run(async () =>
+    await run(async () => {
       reconcile(
         connection.root,
         await scanLocalFolder(connection.root),
         connection.files,
-      ),
-    )
+        connection.folderId,
+      )
+    })
   }
 
   async function save(
@@ -274,8 +469,8 @@ export function useLocalFolder({
       let folderId = note.folderId
       if (!old) {
         const nextFolders: WorkspaceFolder[] = []
-        const parts = [connection.root.name, ...target.split('/').slice(0, -1)]
-        let parentId: string | undefined
+        const parts = target.split('/').slice(0, -1)
+        let parentId: string | undefined = connection.folderId
         for (const name of parts) {
           const existing = [...folders, ...nextFolders].find(
             (item) =>
@@ -283,7 +478,7 @@ export function useLocalFolder({
               item.name === name &&
               item.parentId === parentId,
           )
-          const folder = existing ?? {
+          const folder: WorkspaceFolder = existing ?? {
             id: crypto.randomUUID(),
             name,
             ...(parentId ? { parentId } : {}),
@@ -328,12 +523,15 @@ export function useLocalFolder({
     return note ? [{ ...file, note, status: syncStatus(note, file) }] : []
   })
   return {
+    connection,
     rootName: connection?.root.name,
     files,
     busy,
     error,
     message,
     connect,
+    create,
+    saveWorkspaceFolder,
     check,
     save,
     disconnect,
