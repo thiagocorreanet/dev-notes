@@ -30,6 +30,123 @@ async function addNote(title: string, content: string) {
 }
 
 describe('Notes workspace', () => {
+  it('protects, locks, and unlocks a document without persisting clear text', async () => {
+    render(<NotesPage />)
+    await addNote('Documento privado', 'conteúdo extremamente secreto')
+    const user = userEvent.setup()
+    const noteId = parseWorkspace(localStorage.getItem(WORKSPACE_KEY) ?? '')
+      .notes[0]!.id
+    const highlightKey = `dev-notes:text-highlights:v1:${encodeURIComponent(noteId)}`
+    localStorage.setItem(
+      highlightKey,
+      JSON.stringify([{ text: 'conteúdo extremamente secreto' }]),
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Ações de Documento privado' }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Proteger com senha…' }),
+    )
+    await user.type(screen.getByLabelText('Senha'), 'senha-segura')
+    await user.type(screen.getByLabelText('Confirmar senha'), 'senha-segura')
+    await user.click(screen.getByRole('button', { name: 'Proteger' }))
+
+    await waitFor(
+      () => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    )
+    const stored = localStorage.getItem(WORKSPACE_KEY) ?? ''
+    expect(stored).not.toContain('conteúdo extremamente secreto')
+    expect(parseWorkspace(stored).notes[0]?.protection).toBeDefined()
+    expect(localStorage.getItem(highlightKey)).toBeNull()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Ações de Documento privado' }),
+    )
+    await user.click(screen.getByRole('menuitem', { name: 'Bloquear agora' }))
+    expect(
+      screen.getByRole('heading', { name: 'Documento protegido' }),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Desbloquear documento' }),
+    )
+    await user.type(screen.getByLabelText('Senha'), 'senha-segura')
+    await user.click(screen.getByRole('button', { name: 'Desbloquear' }))
+    await waitFor(
+      () =>
+        expect(screen.getByText('conteúdo extremamente secreto')).toBeVisible(),
+      { timeout: 5000 },
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Ações de Documento privado' }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Remover proteção…' }),
+    )
+    await user.type(screen.getByLabelText('Senha'), 'senha-segura')
+    await user.click(screen.getByRole('button', { name: 'Remover proteção' }))
+    await waitFor(
+      () => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    )
+    const unprotected = localStorage.getItem(WORKSPACE_KEY) ?? ''
+    expect(unprotected).toContain('conteúdo extremamente secreto')
+    expect(parseWorkspace(unprotected).notes[0]?.protection).toBeUndefined()
+  })
+
+  it('protects a folder and unlocks its document tree with one password', async () => {
+    localStorage.setItem(
+      WORKSPACE_KEY,
+      JSON.stringify({
+        format: 'dev-notes-workspace',
+        version: 1,
+        name: 'Espaço de trabalho',
+        folders: [{ id: 'private-folder', name: 'Segredos' }],
+        notes: [
+          {
+            id: 'private-note',
+            title: 'Documento da pasta',
+            content: 'texto secreto da pasta',
+            folderId: 'private-folder',
+          },
+        ],
+      }),
+    )
+    render(<NotesPage />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Ações de Segredos' }))
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Proteger com senha…' }),
+    )
+    await user.type(screen.getByLabelText('Senha'), 'senha-da-pasta')
+    await user.type(screen.getByLabelText('Confirmar senha'), 'senha-da-pasta')
+    await user.click(screen.getByRole('button', { name: 'Proteger' }))
+    await waitFor(
+      () => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    )
+
+    const stored = localStorage.getItem(WORKSPACE_KEY) ?? ''
+    expect(stored).not.toContain('texto secreto da pasta')
+    expect(parseWorkspace(stored).folders[0]?.protection).toBeDefined()
+
+    await user.click(screen.getByRole('button', { name: 'Ações de Segredos' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Bloquear agora' }))
+    expect(screen.queryByTitle('Documento da pasta')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Pasta: Segredos' }))
+    await user.type(screen.getByLabelText('Senha'), 'senha-da-pasta')
+    await user.click(screen.getByRole('button', { name: 'Desbloquear' }))
+    await waitFor(
+      () => expect(screen.getByTitle('Documento da pasta')).toBeVisible(),
+      { timeout: 5000 },
+    )
+  })
+
   it('opens a workspace search result and clears the sidebar filter', async () => {
     render(<NotesPage />)
     await addNote('Background processing', 'Retry the worker after a timeout')

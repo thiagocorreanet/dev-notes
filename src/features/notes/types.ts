@@ -5,6 +5,28 @@ export interface NoteRevision {
   createdAt: string
 }
 
+export interface EncryptedPayload {
+  algorithm: 'AES-GCM'
+  ciphertext: string
+  iterations: number
+  iv: string
+  kdf: 'PBKDF2-SHA-256'
+  salt: string
+}
+
+export interface NoteProtection {
+  format: 'devnotes-encrypted'
+  version: 1
+  ownerId: string
+  payload: EncryptedPayload
+}
+
+export interface FolderProtection {
+  format: 'devnotes-folder-protection'
+  version: 1
+  verifier: EncryptedPayload
+}
+
 export interface Note {
   id: string
   title: string
@@ -15,6 +37,7 @@ export interface Note {
   favorite?: boolean
   deletedAt?: string
   trashBatchId?: string
+  protection?: NoteProtection
 }
 
 export interface WorkspaceFolder {
@@ -23,6 +46,7 @@ export interface WorkspaceFolder {
   parentId?: string
   deletedAt?: string
   trashBatchId?: string
+  protection?: FolderProtection
 }
 
 export interface Workspace {

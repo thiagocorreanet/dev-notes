@@ -6,6 +6,7 @@ import {
   persistWorkspace,
   WORKSPACE_KEY,
 } from './workspace-storage'
+import { protectNote } from './document-protection'
 
 describe('Workspace persistence', () => {
   it('reads legacy notes without deleting or rewriting the original storage', () => {
@@ -50,6 +51,33 @@ describe('Workspace persistence', () => {
     localStorage.setItem(WORKSPACE_KEY, '{broken')
     expect(loadWorkspace().error).toBeTruthy()
     expect(localStorage.getItem(WORKSPACE_KEY)).toBe('{broken')
+  })
+
+  it('never persists clear content or revisions for a protected document', async () => {
+    const { locked } = await protectNote(
+      { id: 'private', title: 'Private', content: 'plain-text secret' },
+      'secure-password',
+    )
+    const unsafeRuntimeCopy = {
+      ...locked,
+      content: 'plain-text secret',
+      revisions: [
+        {
+          id: 'revision',
+          title: 'Private',
+          content: 'revision secret',
+          createdAt: '2026-09-14T12:00:00.000Z',
+        },
+      ],
+    }
+
+    expect(
+      persistWorkspace({ ...emptyWorkspace(), notes: [unsafeRuntimeCopy] }),
+    ).toBe(true)
+    const stored = localStorage.getItem(WORKSPACE_KEY) ?? ''
+    expect(stored).not.toContain('plain-text secret')
+    expect(stored).not.toContain('revision secret')
+    expect(parseWorkspace(stored).notes[0]?.protection).toBeDefined()
   })
 
   it('reports storage failures', () => {

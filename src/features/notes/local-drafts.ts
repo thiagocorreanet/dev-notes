@@ -74,3 +74,13 @@ export function discardLocalDraft(draft: LocalDraft) {
   if (localStorage.getItem(draft.key) === draft.serialized)
     localStorage.removeItem(draft.key)
 }
+
+export function clearLocalDrafts(path: string) {
+  const prefix = `${PREFIX}${encodeURIComponent(path)}:`
+  const keys: string[] = []
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index)
+    if (key?.startsWith(prefix)) keys.push(key)
+  }
+  for (const key of keys) localStorage.removeItem(key)
+}

@@ -85,6 +85,14 @@ export function saveTextHighlights(
   }
 }
 
+export function clearTextHighlights(documentId: string) {
+  try {
+    localStorage.removeItem(storageKey(documentId))
+  } catch {
+    /* Protection remains valid even when optional browser metadata cannot be removed. */
+  }
+}
+
 export function mapTextDocument(root: HTMLElement): TextDocumentMap {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {

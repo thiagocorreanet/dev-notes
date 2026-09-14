@@ -181,6 +181,8 @@ export function useLocalFolder({
         sourcePath,
         folderId: ensureFolder(sourcePath.split('/').slice(0, -1).join('/')),
       }
+      if (note.protection && !note.protection.ownerId)
+        note.protection = { ...note.protection, ownerId: note.id }
       if (!existing) additions.push(note)
       const entry: SyncedFile = {
         noteId: note.id,
@@ -191,8 +193,10 @@ export function useLocalFolder({
         disk: item.raw,
       }
       const status = syncStatus(note, entry)
-      if (status === 'external') updates.push({ ...note, ...parsed })
-      if (status === 'external' || status === 'saved') entry.baseline = item.raw
+      if (status === 'external' && !note.protection)
+        updates.push({ ...note, ...parsed })
+      if (status === 'saved' || (status === 'external' && !note.protection))
+        entry.baseline = item.raw
       next.push(entry)
     }
     for (const old of previous)
@@ -436,14 +440,21 @@ export function useLocalFolder({
         return
       }
       if (resolution === 'disk' || (!resolution && status === 'external')) {
+        if (note.protection)
+          throw new WorkspaceError(
+            'Remova a proteção antes de substituir o documento pela versão da pasta.',
+          )
         if (disk === null)
           throw new WorkspaceError(
             'O arquivo não existe mais na pasta. Recrie o arquivo ou mantenha somente a cópia do navegador.',
           )
-        saveNote(
-          { ...note, ...parseMarkdownFile(target.split('/').at(-1)!, disk) },
-          true,
-        )
+        const parsed = parseMarkdownFile(target.split('/').at(-1)!, disk)
+        if (parsed.protection)
+          parsed.protection = {
+            ...parsed.protection,
+            ownerId: note.id,
+          }
+        saveNote({ ...note, ...parsed }, true)
         updateEntry({ ...entry, baseline: disk })
         setMessage(
           'Versão da pasta carregada. A versão anterior está no histórico do documento.',
@@ -495,10 +506,16 @@ export function useLocalFolder({
           true,
         )
       }
+      const parsed = parseMarkdownFile(target.split('/').at(-1)!, content)
+      if (parsed.protection)
+        parsed.protection = {
+          ...parsed.protection,
+          ownerId: note.protection?.ownerId || note.id,
+        }
       saveNote(
         {
           ...note,
-          ...parseMarkdownFile(target.split('/').at(-1)!, content),
+          ...parsed,
           ...(folderId ? { folderId } : {}),
           sourcePath: `${connection.root.name}/${target}`,
         },

@@ -1,4 +1,8 @@
-import { applyWorkspaceAction } from '../workspace-actions'
+import {
+  applyWorkspaceAction,
+  descendantFolderIds,
+  recordRevision,
+} from '../workspace-actions'
 import { emptyWorkspace } from '../workspace-storage'
 import { useLocalDocuments } from './use-local-documents'
 import { requestedLocalFile } from '../local-document'
@@ -16,6 +20,15 @@ import {
 import type { FileSource, ImportedFolder } from '../workspace-files'
 import { useNotes } from './use-notes'
 import { useLocalFolder } from './use-local-folder'
+import {
+  createFolderProtection,
+  protectNote,
+  unlockNote,
+  updateProtectedNote,
+  verifyFolderPassword,
+} from '../document-protection'
+import type { WorkspaceTarget } from '../workspace-actions'
+import { clearTextHighlights } from '../text-highlights'
 
 export function useWorkspace() {
   const store = useNotes()
@@ -48,6 +61,11 @@ export function useWorkspace() {
     return () => clearTimeout(timer)
   }, [saveFeedback])
   const [busy, setBusy] = useState(false)
+  const [unlockedNotes, setUnlockedNotes] = useState(new Map<string, Note>())
+  const [unlockedOwners, setUnlockedOwners] = useState(new Set<string>())
+  const protectionKeys = useRef(new Map<string, CryptoKey>())
+  const protectionPasswords = useRef(new Map<string, string>())
+  const protectionEditVersions = useRef(new Map<string, number>())
   const [message, setMessage] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const directoryInput = useRef<HTMLInputElement>(null)
@@ -61,15 +79,24 @@ export function useWorkspace() {
     setOpenIds([id])
     setMode('read')
   })
+  function revealNote(note: Note) {
+    const unlocked = unlockedNotes.get(note.id)
+    if (!unlocked) return note
+    const revealed: Note = { ...note, content: unlocked.content }
+    if (unlocked.revisions) revealed.revisions = unlocked.revisions
+    return revealed
+  }
   const documents = [
-    ...localDocuments.notes,
+    ...localDocuments.notes.map(revealNote),
     ...drafts,
-    ...store.notes.filter(
-      (note) =>
-        !note.deletedAt &&
-        !localDocuments.has(note.id) &&
-        !drafts.some((draft) => draft.id === note.id),
-    ),
+    ...store.notes
+      .map(revealNote)
+      .filter(
+        (note) =>
+          !note.deletedAt &&
+          !localDocuments.has(note.id) &&
+          !drafts.some((draft) => draft.id === note.id),
+      ),
     ...exampleNotes.filter(
       (example) =>
         !store.notes.some((note) => note.id === example.id) &&
@@ -127,8 +154,268 @@ export function useWorkspace() {
     if (id === activeNote.id) setActiveId(remaining.at(-1)?.id ?? null)
   }
 
+  function protectedFolderOwner(folderId?: string) {
+    const visited = new Set<string>()
+    let current = folderId
+    while (current && !visited.has(current)) {
+      visited.add(current)
+      const folder = store.folders.find((item) => item.id === current)
+      if (!folder) return undefined
+      if (folder.protection) return folder.id
+      current = folder.parentId
+    }
+    return undefined
+  }
+
+  function protectionOwner(target: WorkspaceTarget) {
+    if (target.kind === 'note')
+      return [...store.notes, ...localDocuments.notes].find(
+        (note) => note.id === target.id,
+      )?.protection?.ownerId
+    return protectedFolderOwner(target.id)
+  }
+
+  function targetNotes(target: WorkspaceTarget) {
+    if (target.kind === 'note') {
+      const note = documents.find((item) => item.id === target.id)
+      return note ? [note] : []
+    }
+    const folders = descendantFolderIds(store.folders, target.id)
+    return documents.filter(
+      (note) => note.folderId && folders.has(note.folderId),
+    )
+  }
+
+  function isNoteLocked(id: string) {
+    const note = [...store.notes, ...localDocuments.notes].find(
+      (item) => item.id === id,
+    )
+    return !!note?.protection && !unlockedNotes.has(id)
+  }
+
+  function isFolderLocked(id: string) {
+    const owner = protectedFolderOwner(id)
+    return !!owner && !unlockedOwners.has(owner)
+  }
+
+  async function runProtection(action: () => Promise<void>) {
+    setBusy(true)
+    setActionError(null)
+    try {
+      await action()
+      return true
+    } catch (error) {
+      reportError(error)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function protectItem(target: WorkspaceTarget, password: string) {
+    return runProtection(async () => {
+      const notes = targetNotes(target)
+      if (!notes.length && target.kind === 'note')
+        throw new WorkspaceError('Este documento não está mais disponível.')
+      if (
+        protectionOwner(target) ||
+        notes.some((note) => note.protection) ||
+        (target.kind === 'folder' &&
+          store.folders.some(
+            (folder) =>
+              descendantFolderIds(store.folders, target.id).has(folder.id) &&
+              folder.protection,
+          ))
+      )
+        throw new WorkspaceError('Este item já possui proteção por senha.')
+      if (notes.some((note) => localDocuments.has(note.id)))
+        throw new WorkspaceError(
+          'Salve o documento no espaço de trabalho antes de protegê-lo.',
+        )
+      const ownerId = target.id
+      const protectedNotes = await Promise.all(
+        notes.map((note) => protectNote(note, password, ownerId)),
+      )
+      const byId = new Map(protectedNotes.map((item) => [item.locked.id, item]))
+      const nextNotes = store.notes.map(
+        (note) => byId.get(note.id)?.locked ?? note,
+      )
+      for (const item of protectedNotes)
+        if (!nextNotes.some((note) => note.id === item.locked.id))
+          nextNotes.unshift(item.locked)
+      let nextFolders = store.folders
+      if (target.kind === 'folder') {
+        const protection = await createFolderProtection(password)
+        nextFolders = store.folders.map((folder) =>
+          folder.id === target.id ? { ...folder, protection } : folder,
+        )
+      }
+      store.replaceItems(nextNotes, nextFolders)
+      for (const item of protectedNotes) clearTextHighlights(item.locked.id)
+      setDrafts((current) => current.filter((note) => !byId.has(note.id)))
+      setUnlockedNotes((current) => {
+        const next = new Map(current)
+        for (const item of protectedNotes)
+          next.set(item.unlocked.id, item.unlocked)
+        return next
+      })
+      for (const item of protectedNotes)
+        protectionKeys.current.set(item.locked.id, item.key)
+      protectionPasswords.current.set(ownerId, password)
+      setUnlockedOwners((current) => new Set([...current, ownerId]))
+      if (target.kind === 'folder')
+        setExpandedFolders((current) => new Set([...current, target.id]))
+      setMessage(
+        target.kind === 'folder'
+          ? 'Pasta protegida. Os documentos serão gravados de forma criptografada.'
+          : 'Documento protegido. O conteúdo será gravado de forma criptografada.',
+      )
+    })
+  }
+
+  async function unlockItem(target: WorkspaceTarget, password: string) {
+    return runProtection(async () => {
+      const ownerId = protectionOwner(target)
+      if (!ownerId) throw new WorkspaceError('Este item não está protegido.')
+      const folder = store.folders.find((item) => item.id === ownerId)
+      if (folder?.protection)
+        await verifyFolderPassword(folder.protection, password)
+      const candidates = [...store.notes, ...localDocuments.notes].filter(
+        (note) =>
+          note.protection?.ownerId === ownerId &&
+          (target.kind === 'folder' || note.id === target.id),
+      )
+      const unlocked = await Promise.all(
+        candidates.map((note) => unlockNote(note, password)),
+      )
+      if (!folder && !unlocked.length)
+        throw new WorkspaceError('Este documento não está mais disponível.')
+      setUnlockedNotes((current) => {
+        const next = new Map(current)
+        for (const item of unlocked) next.set(item.note.id, item.note)
+        return next
+      })
+      for (const item of unlocked)
+        protectionKeys.current.set(item.note.id, item.key)
+      protectionPasswords.current.set(ownerId, password)
+      setUnlockedOwners((current) => new Set([...current, ownerId]))
+      if (target.kind === 'folder')
+        setExpandedFolders((current) => new Set([...current, target.id]))
+      setMessage(
+        target.kind === 'folder'
+          ? 'Pasta desbloqueada nesta sessão.'
+          : 'Documento desbloqueado nesta sessão.',
+      )
+    })
+  }
+
+  function lockItem(target: WorkspaceTarget) {
+    const ownerId = protectionOwner(target)
+    if (!ownerId) return
+    setUnlockedNotes((current) => {
+      const next = new Map(current)
+      for (const [id, note] of next)
+        if (note.protection?.ownerId === ownerId) next.delete(id)
+      return next
+    })
+    for (const note of [...store.notes, ...localDocuments.notes])
+      if (note.protection?.ownerId === ownerId) {
+        protectionKeys.current.delete(note.id)
+        protectionEditVersions.current.set(
+          note.id,
+          (protectionEditVersions.current.get(note.id) ?? 0) + 1,
+        )
+      }
+    protectionPasswords.current.delete(ownerId)
+    setUnlockedOwners((current) => {
+      const next = new Set(current)
+      next.delete(ownerId)
+      return next
+    })
+    setMode('read')
+    setMessage('Proteção bloqueada. Informe a senha para acessar novamente.')
+  }
+
+  async function removeProtection(target: WorkspaceTarget, password: string) {
+    return runProtection(async () => {
+      const ownerId = protectionOwner(target)
+      if (!ownerId) throw new WorkspaceError('Este item não está protegido.')
+      if (target.kind === 'note' && ownerId !== target.id)
+        throw new WorkspaceError(
+          'A senha pertence à pasta. Remova a proteção pela pasta.',
+        )
+      if (target.kind === 'note' && localDocuments.has(target.id))
+        throw new WorkspaceError(
+          'Abra uma cópia no espaço de trabalho antes de remover a proteção.',
+        )
+      const folder = store.folders.find((item) => item.id === ownerId)
+      if (folder?.protection)
+        await verifyFolderPassword(folder.protection, password)
+      const protectedNotes = store.notes.filter(
+        (note) => note.protection?.ownerId === ownerId,
+      )
+      const decrypted = await Promise.all(
+        protectedNotes.map((note) => unlockNote(note, password)),
+      )
+      const clearById = new Map(
+        decrypted.map(({ note }) => {
+          const clear: Note = { ...note }
+          delete clear.protection
+          return [note.id, clear]
+        }),
+      )
+      const nextNotes = store.notes.map(
+        (note) => clearById.get(note.id) ?? note,
+      )
+      const nextFolders = store.folders.map((item) => {
+        if (item.id !== ownerId) return item
+        const clear = { ...item }
+        delete clear.protection
+        return clear
+      })
+      store.replaceItems(nextNotes, nextFolders)
+      setUnlockedNotes((current) => {
+        const next = new Map(current)
+        for (const note of protectedNotes) next.delete(note.id)
+        return next
+      })
+      for (const note of protectedNotes) protectionKeys.current.delete(note.id)
+      protectionPasswords.current.delete(ownerId)
+      setUnlockedOwners((current) => {
+        const next = new Set(current)
+        next.delete(ownerId)
+        return next
+      })
+      setMessage(
+        'Proteção removida. O conteúdo voltou a ser salvo como Markdown comum.',
+      )
+    })
+  }
+
   function performAction(action: WorkspaceAction) {
     setActionError(null)
+    if (action.type === 'duplicate') {
+      const protectedDescendant =
+        action.kind === 'folder' &&
+        (targetNotes(action).some((note) => note.protection) ||
+          store.folders.some(
+            (folder) =>
+              descendantFolderIds(store.folders, action.id).has(folder.id) &&
+              folder.protection,
+          ))
+      if (protectionOwner(action) || protectedDescendant)
+        throw new WorkspaceError(
+          'Remova a proteção antes de duplicar este item.',
+        )
+    }
+    if (action.type === 'move') {
+      const sourceOwner = protectionOwner(action)
+      const destinationOwner = protectedFolderOwner(action.parentId)
+      if (sourceOwner !== destinationOwner)
+        throw new WorkspaceError(
+          'Remova a proteção antes de mover este item para dentro ou para fora de uma pasta protegida.',
+        )
+    }
     const localResult = localDocuments.notes.length
       ? applyWorkspaceAction(
           {
@@ -222,6 +509,38 @@ export function useWorkspace() {
   }
 
   function editNote(note: Note) {
+    const stored = [...store.notes, ...localDocuments.notes].find(
+      (item) => item.id === note.id,
+    )
+    if (stored?.protection) {
+      if (localDocuments.has(note.id)) {
+        setActionError(
+          'Arquivos protegidos abertos diretamente ficam somente para leitura. Abra uma cópia no espaço de trabalho para editar.',
+        )
+        return
+      }
+      const key = protectionKeys.current.get(note.id)
+      const previous = unlockedNotes.get(note.id)
+      if (!key || !previous) {
+        setActionError('Desbloqueie o documento antes de editá-lo.')
+        return
+      }
+      const nextNote = recordRevision(previous, note)
+      const version = (protectionEditVersions.current.get(note.id) ?? 0) + 1
+      protectionEditVersions.current.set(note.id, version)
+      setUnlockedNotes((current) => new Map(current).set(note.id, nextNote))
+      void updateProtectedNote(nextNote, key)
+        .then((result) => {
+          if (protectionEditVersions.current.get(note.id) !== version) return
+          store.saveNote(result.locked)
+          setUnlockedNotes((current) =>
+            new Map(current).set(note.id, result.unlocked),
+          )
+          setMessage('Alterações protegidas salvas neste navegador.')
+        })
+        .catch((error: unknown) => reportError(error))
+      return
+    }
     if (localDocuments.has(note.id)) {
       localDocuments.edit(note)
       return
@@ -245,9 +564,11 @@ export function useWorkspace() {
     setSaveFeedback({ note, phase: 'saving' })
     setActionError(null)
     try {
-      const saved = localDocuments.has(note.id)
-        ? await localDocuments.save(note)
-        : store.saveNote(note)
+      const saved = note.protection
+        ? !!protectionKeys.current.get(note.id)
+        : localDocuments.has(note.id)
+          ? await localDocuments.save(note)
+          : store.saveNote(note)
       if (saved && !localDocuments.has(note.id)) {
         setDrafts((items) => items.filter((item) => item.id !== note.id))
         setMessage('Página salva neste navegador.')
@@ -263,14 +584,45 @@ export function useWorkspace() {
     }
   }
 
-  function createPage(title: string, content: string) {
-    const note = store.addNote(title, content, selectedFolder)
+  function finishCreatedPage(note: Note) {
     activate(note.id)
     setQuery('')
     setMode('read')
     setDialog(null)
     if (selectedFolder)
       setExpandedFolders((current) => new Set([...current, selectedFolder]))
+  }
+
+  function createPage(title: string, content: string) {
+    const ownerId = protectedFolderOwner(selectedFolder)
+    if (ownerId) {
+      const password = protectionPasswords.current.get(ownerId)
+      if (!password) {
+        setActionError('Desbloqueie a pasta antes de adicionar um documento.')
+        return
+      }
+      void runProtection(async () => {
+        const note: Note = {
+          id: crypto.randomUUID(),
+          title: title.trim(),
+          content: content.trim(),
+          ...(selectedFolder ? { folderId: selectedFolder } : {}),
+        }
+        const protectedNote = await protectNote(note, password, ownerId)
+        store.replaceItems(
+          [protectedNote.locked, ...store.notes],
+          store.folders,
+        )
+        protectionKeys.current.set(note.id, protectedNote.key)
+        setUnlockedNotes((current) =>
+          new Map(current).set(note.id, protectedNote.unlocked),
+        )
+        finishCreatedPage(protectedNote.unlocked)
+      })
+      return
+    }
+    const note = store.addNote(title, content, selectedFolder)
+    finishCreatedPage(note)
   }
 
   function createFolder(name: string) {
@@ -346,6 +698,8 @@ export function useWorkspace() {
     try {
       const parsed = await readMarkdownFile(file)
       const note = { id: crypto.randomUUID(), ...parsed, sourcePath: file.name }
+      if (note.protection)
+        note.protection = { ...note.protection, ownerId: note.id }
       store.saveNote(note)
       sources.current.set(note.id, { fileName: file.name, baseline: parsed })
       setEmptyFolderOpen(false)
@@ -395,6 +749,10 @@ export function useWorkspace() {
   }
 
   async function applyRefresh(note: Note, file: File) {
+    if (note.protection)
+      throw new WorkspaceError(
+        'Remova a proteção antes de recarregar este documento do original.',
+      )
     const parsed = await readMarkdownFile(file)
     store.saveNote({ ...note, ...parsed })
     const previous = sources.current.get(note.id)
@@ -434,6 +792,12 @@ export function useWorkspace() {
 
   function requestRefresh() {
     if (!activeNote.sourcePath) return
+    if (activeNote.protection) {
+      setActionError(
+        'Remova a proteção antes de recarregar este documento do original.',
+      )
+      return
+    }
     const baseline = sources.current.get(activeNote.id)?.baseline
     if (
       !baseline ||
@@ -504,6 +868,22 @@ export function useWorkspace() {
     localFolder,
     localDocuments,
     restoreRevision: (id: string, revisionId: string) => {
+      const protectedNote = documents.find(
+        (note) => note.id === id && note.protection,
+      )
+      if (protectedNote) {
+        const revision = protectedNote.revisions?.find(
+          (item) => item.id === revisionId,
+        )
+        if (!revision)
+          throw new WorkspaceError('Esta versão não está mais disponível.')
+        editNote({
+          ...protectedNote,
+          title: revision.title,
+          content: revision.content,
+        })
+        return true
+      }
       const local = localDocuments.notes.find((note) => note.id === id)
       if (!local) return store.restoreRevision(id, revisionId)
       const revision = local.revisions?.find((item) => item.id === revisionId)
@@ -519,6 +899,14 @@ export function useWorkspace() {
     allNotes: store.notes,
     allFolders: store.folders,
     folders: store.folders.filter((folder) => !folder.deletedAt),
+    protectItem,
+    unlockItem,
+    lockItem,
+    removeProtection,
+    protectionOwner,
+    isNoteLocked,
+    isFolderLocked,
+    unlockedOwners,
     performAction,
     openNotes,
     closeTab,

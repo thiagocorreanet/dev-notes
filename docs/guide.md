@@ -101,6 +101,16 @@ Sidebar search matches page titles, content, and folder paths, revealing matchin
 
 To highlight a passage without changing its Markdown, select text in Read or visual Edit mode and open **Marca-texto** beside document history. Choose yellow, green, blue, or pink. Select a highlighted passage again to remove its mark, or clear every highlight from the same popover. DevNotes stores these visual annotations separately in browser storage; they remain after reloading in the same browser but do not travel with a downloaded or original `.md` file.
 
+### Password protection
+
+Open a document or folder menu and choose **Protect with password**. A folder password applies to its existing Markdown descendants and to documents created inside the folder while it remains unlocked. Protected folders hide their tree until the password is entered. **Lock now** removes decrypted content and keys from the current page session; reloading the page also locks every protected item. **Remove protection** requires the password and restores ordinary Markdown storage.
+
+Protection encrypts document content and revision history with AES-GCM. PBKDF2-SHA-256 derives a separate key for every encrypted document using a random salt and 310,000 iterations; encryption also uses a fresh random IV for every write. Passwords and decrypted content are never persisted in the workspace. Enabling protection removes the document's separate visual-highlight metadata because it can contain selected text. Titles, filenames, folder names, and directory structure remain visible.
+
+Downloading a protected document or saving it to a connected folder writes a DevNotes encrypted envelope inside the `.md` file. Its content is not readable in another Markdown editor while protected. DevNotes recognizes that envelope when the file is opened again. A protected file opened directly through the Linux launcher can be unlocked for reading; open it as a workspace copy before editing or removing its protection. DevNotes has no password recovery mechanism, so losing the password permanently loses access to the encrypted content.
+
+Protecting an imported workspace copy does not rewrite its original file. Use the connected-folder save action or download the protected document to write the encrypted envelope to the computer. Until that explicit save happens, an existing original remains ordinary readable Markdown.
+
 ### Visual editing
 
 The headless [Tiptap editor](https://tiptap.dev/docs/editor/getting-started/install/react) uses official shadcn/ui controls for formatting, headings, lists, checklists, quotes, code, undo/redo, and table insertion. Click in a table to add or delete rows and columns. Tab moves between cells and creates a row at the end. Tables keep a header row and one paragraph per cell for Markdown compatibility; merged cells and nested blocks are not supported.

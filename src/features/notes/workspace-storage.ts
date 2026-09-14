@@ -1,5 +1,6 @@
 import { WorkspaceError } from './workspace-error'
 import { isNote, loadNotes, validTimestamp } from './storage'
+import { isEncryptedPayload } from './document-protection'
 import type { Workspace, WorkspaceFolder } from './types'
 
 export const WORKSPACE_KEY = 'dev-notes:workspace:v1'
@@ -25,7 +26,16 @@ function isFolder(value: unknown): value is WorkspaceFolder {
     !!value.name.trim() &&
     (!('parentId' in value) || typeof value.parentId === 'string') &&
     (!('deletedAt' in value) || validTimestamp(value.deletedAt)) &&
-    (!('trashBatchId' in value) || typeof value.trashBatchId === 'string')
+    (!('trashBatchId' in value) || typeof value.trashBatchId === 'string') &&
+    (!('protection' in value) ||
+      (typeof value.protection === 'object' &&
+        value.protection !== null &&
+        'format' in value.protection &&
+        value.protection.format === 'devnotes-folder-protection' &&
+        'version' in value.protection &&
+        value.protection.version === 1 &&
+        'verifier' in value.protection &&
+        isEncryptedPayload(value.protection.verifier)))
   )
 }
 
@@ -89,6 +99,21 @@ export function parseWorkspace(json: string): Workspace {
       'Uma página salva pertence a uma pasta que não existe.',
     )
   }
+  for (const note of notes) {
+    const ownerId = note.protection?.ownerId
+    if (!ownerId || ownerId === note.id) continue
+    const owner = byId.get(ownerId)
+    let folderId = note.folderId
+    const visited = new Set<string>()
+    while (folderId && folderId !== ownerId && !visited.has(folderId)) {
+      visited.add(folderId)
+      folderId = byId.get(folderId)?.parentId
+    }
+    if (!owner?.protection || folderId !== ownerId)
+      throw new WorkspaceError(
+        'Um documento protegido pertence a uma pasta de proteção inválida.',
+      )
+  }
   return {
     format: 'dev-notes-workspace',
     version: 1,
@@ -123,9 +148,24 @@ export function loadWorkspace(): {
   }
 }
 
+export function sanitizeWorkspace(workspace: Workspace): Workspace {
+  return {
+    ...workspace,
+    notes: workspace.notes.map((note) => {
+      if (!note.protection) return note
+      const safe: typeof note = { ...note, content: '' }
+      delete safe.revisions
+      return safe
+    }),
+  }
+}
+
 export function persistWorkspace(workspace: Workspace): boolean {
   try {
-    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace))
+    localStorage.setItem(
+      WORKSPACE_KEY,
+      JSON.stringify(sanitizeWorkspace(workspace)),
+    )
     return true
   } catch {
     return false
