@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import type { TestContext } from 'node:test'
 import { startLocalServer } from './server.ts'
+import type { CodexChatRequest, CodexService } from './codex-service.ts'
 
 interface DocumentResponse {
   path: string
@@ -21,14 +22,17 @@ interface DocumentResponse {
   version: string
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, codex?: CodexService) {
   const directory = await mkdtemp(join(tmpdir(), 'devnotes-local-test-'))
   const dist = join(directory, 'dist')
   await mkdir(dist)
   await writeFile(join(dist, 'index.html'), '<html>DevNotes</html>')
   const path = join(directory, 'a space & ação #1.md')
   await writeFile(path, '# Guide\r\n\r\nOriginal\r\n', { mode: 0o640 })
-  const service = await startLocalServer({ dist })
+  const service = await startLocalServer({
+    dist,
+    ...(codex ? { codex } : {}),
+  })
   t.after(async () => {
     await new Promise<void>((resolve) => {
       service.server.close(() => resolve())
@@ -66,6 +70,125 @@ async function fixture(t: TestContext) {
     })
   return { ...service, directory, path, endpoint, launch, save }
 }
+
+void test('keeps Codex access local, session-bound, and explicit about document context', async (t) => {
+  const chats: CodexChatRequest[] = []
+  let closed = false
+  const codex: CodexService = {
+    status() {
+      return Promise.resolve({
+        available: true,
+        state: 'connected',
+        email: 'writer@example.com',
+        plan: 'pro',
+        model: 'Padrão do Codex',
+        primary: { usedPercent: 14, resetsAt: null },
+        secondary: null,
+      })
+    },
+    loginWithChatGPT() {
+      return Promise.resolve({ authUrl: 'https://chatgpt.com/auth/codex' })
+    },
+    chat(request) {
+      chats.push(request)
+      return Promise.resolve({
+        threadId: request.threadId ?? 'thread-1',
+        message: 'Ready.',
+        proposedMarkdown: null,
+        proposalSummary: null,
+      })
+    },
+    close() {
+      closed = true
+      return Promise.resolve()
+    },
+  }
+  const f = await fixture(t, codex)
+  const first = await f.launch()
+  const headers = { Cookie: first.cookie }
+  const status = await fetch(`${f.origin}/api/codex/status`, { headers })
+  assert.equal(status.status, 200)
+  assert.equal(((await status.json()) as { plan: string }).plan, 'pro')
+
+  assert.equal(
+    (
+      await fetch(`${f.origin}/api/codex/login`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Origin: f.origin,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      })
+    ).status,
+    200,
+  )
+  const chat = await fetch(`${f.origin}/api/codex/chat`, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      Origin: f.origin,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: 'Review this.',
+      document: { title: 'Guide', content: '# Private' },
+    }),
+  })
+  assert.equal(chat.status, 200)
+  assert.deepEqual(
+    chats.map(({ message, threadId, document }) => ({
+      message,
+      threadId,
+      document,
+    })),
+    [
+      {
+        message: 'Review this.',
+        threadId: undefined,
+        document: { title: 'Guide', content: '# Private' },
+      },
+    ],
+  )
+
+  const second = await f.launch()
+  assert.equal(
+    (
+      await fetch(`${f.origin}/api/codex/chat`, {
+        method: 'POST',
+        headers: {
+          Cookie: second.cookie,
+          Origin: f.origin,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          threadId: 'thread-1',
+          message: 'Continue.',
+        }),
+      })
+    ).status,
+    403,
+  )
+  assert.equal(
+    (
+      await fetch(`${f.origin}/api/codex/chat`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'Blocked.' }),
+      })
+    ).status,
+    403,
+  )
+
+  await new Promise<void>((resolve) => f.server.close(() => resolve()))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(closed, true)
+})
 
 void test('launches with the requested URL, reads and saves the original, and preserves no-op bytes and permissions', async (t) => {
   const f = await fixture(t)

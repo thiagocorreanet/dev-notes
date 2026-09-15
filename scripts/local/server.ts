@@ -12,6 +12,8 @@ import {
   chmod,
 } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
+import { CodexAppServerService, CodexServiceError } from './codex-service.ts'
+import type { CodexDocumentContext, CodexService } from './codex-service.ts'
 
 const MAX_BYTES = 2 * 1024 * 1024
 const digest = (raw: string) => createHash('sha256').update(raw).digest('hex')
@@ -78,15 +80,19 @@ export async function startLocalServer(options: {
   dist: string
   port?: number
   token?: string
+  codex?: CodexService
 }) {
   const token = options.token ?? secret()
   const allowed = new Set<string>()
   const tickets = new Map<string, { path?: string; expires: number }>()
-  const sessions = new Set<string>()
+  const sessions = new Map<string, { codexThreads: Set<string> }>()
   const writes = new Map<string, Promise<unknown>>()
   const dist = await realpath(options.dist)
   const cookieName = `devnotes_${secret().slice(0, 12)}`
+  let codex = options.codex
   let origin = ''
+
+  const codexService = () => (codex ??= new CodexAppServerService())
 
   async function authorizePath(path: string) {
     if (!/\.(md|markdown)$/i.test(path))
@@ -151,7 +157,7 @@ export async function startLocalServer(options: {
           'Launch link expired. Open the file again from your computer.',
         )
       const session = secret()
-      sessions.add(session)
+      sessions.set(session, { codexThreads: new Set() })
       response.setHeader(
         'Set-Cookie',
         `${cookieName}=${session}; HttpOnly; SameSite=Strict; Path=/`,
@@ -169,12 +175,87 @@ export async function startLocalServer(options: {
         ?.split('; ')
         .find((value) => value.startsWith(`${cookieName}=`))
         ?.slice(cookieName.length + 1)
-      if (!cookie || !sessions.has(cookie))
+      const session = cookie ? sessions.get(cookie) : undefined
+      if (!session)
         throw new HttpError(401, 'Open DevNotes using the local launcher.')
+      if (
+        ['POST', 'PUT', 'DELETE'].includes(method) &&
+        request.headers.origin !== origin
+      )
+        throw new HttpError(403, 'Invalid origin.')
+
+      if (url.pathname === '/api/codex/status' && method === 'GET') {
+        json(await codexService().status())
+        return
+      }
+
+      if (url.pathname === '/api/codex/login' && method === 'POST') {
+        json(await codexService().loginWithChatGPT())
+        return
+      }
+
+      if (url.pathname === '/api/codex/chat' && method === 'POST') {
+        const body = await jsonBody(request)
+        if (
+          typeof body.message !== 'string' ||
+          !body.message.trim() ||
+          body.message.length > 16_000
+        )
+          throw new HttpError(
+            400,
+            'Escreva uma mensagem de até 16.000 caracteres.',
+          )
+        if (
+          body.threadId !== undefined &&
+          (typeof body.threadId !== 'string' || body.threadId.length > 200)
+        )
+          throw new HttpError(400, 'Conversa inválida.')
+        if (
+          typeof body.threadId === 'string' &&
+          !session.codexThreads.has(body.threadId)
+        )
+          throw new HttpError(403, 'Esta conversa não pertence a esta sessão.')
+
+        let document: CodexDocumentContext | undefined
+        if (body.document !== undefined) {
+          const value = body.document
+          if (
+            !value ||
+            typeof value !== 'object' ||
+            Array.isArray(value) ||
+            !('title' in value) ||
+            typeof value.title !== 'string' ||
+            value.title.length > 200 ||
+            !('content' in value) ||
+            typeof value.content !== 'string' ||
+            Buffer.byteLength(value.content, 'utf8') > MAX_BYTES
+          )
+            throw new HttpError(400, 'Documento anexado inválido.')
+          document = { title: value.title, content: value.content }
+        }
+
+        const controller = new AbortController()
+        const abort = () => controller.abort()
+        request.once('aborted', abort)
+        response.once('close', () => {
+          if (!response.writableEnded) abort()
+        })
+        const result = await codexService().chat({
+          threadId:
+            typeof body.threadId === 'string' ? body.threadId : undefined,
+          message: body.message.trim(),
+          document,
+          signal: controller.signal,
+        })
+        if (!result.threadId || result.threadId.length > 200)
+          throw new HttpError(502, 'O Codex retornou uma conversa inválida.')
+        session.codexThreads.add(result.threadId)
+        json(result)
+        return
+      }
+
       if (url.pathname !== '/api/document' || !['GET', 'PUT'].includes(method))
         throw new HttpError(404, 'Unknown endpoint.')
-      if (method === 'PUT' && request.headers.origin !== origin)
-        throw new HttpError(403, 'Invalid origin.')
       const path = url.searchParams.get('file') ?? ''
       if (!allowed.has(path) || (await realpath(path)) !== path)
         throw new HttpError(
@@ -270,9 +351,21 @@ export async function startLocalServer(options: {
       const status =
         error instanceof HttpError
           ? error.status
-          : error instanceof Error && 'code' in error && error.code === 'ENOENT'
-            ? 404
-            : 500
+          : error instanceof CodexServiceError
+            ? error.code === 'auth'
+              ? 401
+              : error.code === 'limit'
+                ? 429
+                : error.code === 'unavailable'
+                  ? 503
+                  : error.code === 'cancelled'
+                    ? 499
+                    : 502
+            : error instanceof Error &&
+                'code' in error &&
+                error.code === 'ENOENT'
+              ? 404
+              : 500
       response.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
       })
@@ -281,7 +374,17 @@ export async function startLocalServer(options: {
           error:
             error instanceof HttpError
               ? error.message
-              : 'Unable to access the local file.',
+              : error instanceof CodexServiceError
+                ? error.code === 'auth'
+                  ? 'Entre com sua conta do ChatGPT para usar o assistente.'
+                  : error.code === 'limit'
+                    ? 'Você atingiu o limite incluído na sua assinatura. Aguarde a renovação para continuar.'
+                    : error.code === 'unavailable'
+                      ? 'O Codex não está disponível neste computador.'
+                      : error.code === 'cancelled'
+                        ? 'Resposta interrompida.'
+                        : 'O Codex não conseguiu concluir a resposta. Tente novamente.'
+                : 'Unable to access the local file.',
         }),
       )
     })
@@ -297,5 +400,8 @@ export async function startLocalServer(options: {
   if (!address || typeof address === 'string')
     throw new Error('Missing server address.')
   origin = `http://127.0.0.1:${address.port}`
+  server.once('close', () => {
+    void codex?.close()
+  })
   return { server, origin, token }
 }

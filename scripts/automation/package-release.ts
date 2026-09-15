@@ -29,7 +29,12 @@ try {
   await mkdir(join(runtime, 'scripts/local'), { recursive: true })
   await mkdir(join(runtime, 'public'), { recursive: true })
   await cp(join(root, 'dist'), join(runtime, 'dist'), { recursive: true })
-  for (const name of ['launcher.ts', 'server.ts', 'install.ts'])
+  for (const name of [
+    'launcher.ts',
+    'server.ts',
+    'codex-service.ts',
+    'install.ts',
+  ])
     await cp(
       join(root, 'scripts/local', name),
       join(runtime, 'scripts/local', name),
@@ -62,7 +67,7 @@ try {
     join(runtime, 'README.md'),
     `# DevNotes ${version} for Linux
 
-This archive contains the production web app and local file launcher. Install Node.js 24 and npm 11 or later first. No npm dependency installation or frontend build is required.
+This archive contains the production web app and local file launcher. Install Node.js 24 and npm 11 or later first. No npm dependency installation or frontend build is required. The optional Codex assistant also requires the Codex CLI on PATH and a ChatGPT account; the rest of DevNotes works without it.
 
 Extract the archive to a permanent location and run these commands from that folder:
 

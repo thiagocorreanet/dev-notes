@@ -78,9 +78,9 @@ import { DocumentSearch } from './document-search'
 import { WorkspaceSearch } from './workspace-search'
 import { editorCommandDefinitions } from '../editor-commands'
 import type { EditorCommandId } from '../editor-commands'
-import { AiSettingsDialog } from './ai-settings-dialog'
 import { AiChat } from './ai-chat'
-import { loadAiSettings } from '../ai-settings'
+import { CodexAccountDialog } from './codex-account-dialog'
+import { useCodexAccount } from '../hooks/use-codex-account'
 import type { DocumentSearchHandle } from './document-search'
 import { DocumentMinimap } from './document-minimap'
 import { DocumentPresentation } from './document-presentation'
@@ -327,7 +327,7 @@ export function NotesPage() {
   >(null)
   const [taskTarget, setTaskTarget] = useState<NoteTask | null>(null)
   const [printNote, setPrintNote] = useState<Note | null>(null)
-  const [aiSettings, setAiSettings] = useState(loadAiSettings)
+  const codex = useCodexAccount()
 
   useEffect(() => {
     if (
@@ -357,6 +357,11 @@ export function NotesPage() {
     setPanel(next)
   }
 
+  function showCodexPanel() {
+    if (!codex.status && !codex.loading) void codex.refresh()
+    showPanel('ai')
+  }
+
   const commandActions: Record<EditorCommandId, () => void> = {
     appearance: () => showPanel('appearance'),
     focus: () => setFocusMode((current) => !current),
@@ -379,7 +384,7 @@ export function NotesPage() {
       void workspace.savePage()
     },
     'save-as': () => showPanel('save-as'),
-    ai: () => showPanel('ai'),
+    ai: showCodexPanel,
     minimap: () => showPanel('minimap'),
   }
   const commands = editorCommandDefinitions.map((command) => ({
@@ -1032,10 +1037,28 @@ export function NotesPage() {
             </ResizableWorkspace>
             <div className="contents" data-focus-secondary>
               <AiChat
-                key={`${aiSettings.endpoint}:${aiSettings.model}`}
-                settings={aiSettings}
+                status={codex.status}
+                accountLoading={codex.loading}
                 note={activeNote}
+                canUseDocument={!workspace.isNoteLocked(activeNote.id)}
+                canApplyDocument={
+                  !workspace.busy &&
+                  !workspace.isNoteLocked(activeNote.id) &&
+                  !protectedLocalReadOnly
+                }
                 onConfigure={() => showPanel('ai')}
+                onApplyDocument={(noteId, markdown) => {
+                  if (
+                    noteId === activeNote.id &&
+                    !workspace.busy &&
+                    !workspace.isNoteLocked(noteId) &&
+                    !protectedLocalReadOnly
+                  )
+                    workspace.editNote({ ...activeNote, content: markdown })
+                }}
+                onRefreshStatus={() => {
+                  void codex.refresh()
+                }}
               />
             </div>
             <Input
@@ -1243,9 +1266,18 @@ export function NotesPage() {
               />
             )}
             {panel === 'ai' && (
-              <AiSettingsDialog
-                settings={aiSettings}
-                onSave={setAiSettings}
+              <CodexAccountDialog
+                status={codex.status}
+                loading={codex.loading}
+                loginPending={codex.loginPending}
+                loginUrl={codex.loginUrl}
+                error={codex.error}
+                onLogin={() => {
+                  void codex.login()
+                }}
+                onRefresh={() => {
+                  void codex.refresh()
+                }}
                 onClose={() => setPanel(null)}
               />
             )}

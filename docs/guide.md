@@ -125,20 +125,20 @@ Use the **Ctrl K** button beside the magnifying glass or **Ctrl/Cmd+K** to open 
 
 The palette also includes focus mode and appearance preferences. The table uses English translations of the interface labels:
 
-| Action                | Behavior                                                                                                                                                                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Change theme          | Switch between light and dark.                                                                                                                                                                                               |
-| Save open file as PDF | Open the browser print dialog with only the active document; choose Save as PDF. Code wraps for printing and editor controls are excluded.                                                                                   |
-| Presentation mode     | Open a full-window presentation split at level-one and level-two Markdown headings. Navigate with arrows or the previous/next controls; Escape exits.                                                                        |
-| Find in document      | Focus the existing document search; Ctrl/Cmd+F also opens it.                                                                                                                                                                |
-| New document          | Start a temporary document in Edit mode.                                                                                                                                                                                     |
-| New workspace folder  | Create a folder beneath the selected location.                                                                                                                                                                               |
-| Open folder/workspace | Import a folder containing Markdown documents as workspace copies.                                                                                                                                                           |
-| Open Markdown file    | Open a local `.md` or `.markdown` file without changing the original.                                                                                                                                                        |
-| Save page             | Persist only the active page, including a temporary draft. For a document opened through the local launcher, save to the original file. Ctrl/Cmd+S performs the same action.                                                 |
-| Save as               | Download a Markdown copy with a chosen filename. The browser controls the destination according to its download preferences.                                                                                                 |
-| Configure AI          | Save a server URL and model locally. An optional API key stays in memory for the current tab and is cleared on reload. Saving settings does not send requests; the corner chat uses this connection when you send a message. |
-| Open minimap          | Open a navigable heading overview. Selecting a section switches to Read mode and focuses that heading.                                                                                                                       |
+| Action                | Behavior                                                                                                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Change theme          | Switch between light and dark.                                                                                                                                               |
+| Save open file as PDF | Open the browser print dialog with only the active document; choose Save as PDF. Code wraps for printing and editor controls are excluded.                                   |
+| Presentation mode     | Open a full-window presentation split at level-one and level-two Markdown headings. Navigate with arrows or the previous/next controls; Escape exits.                        |
+| Find in document      | Focus the existing document search; Ctrl/Cmd+F also opens it.                                                                                                                |
+| New document          | Start a temporary document in Edit mode.                                                                                                                                     |
+| New workspace folder  | Create a folder beneath the selected location.                                                                                                                               |
+| Open folder/workspace | Import a folder containing Markdown documents as workspace copies.                                                                                                           |
+| Open Markdown file    | Open a local `.md` or `.markdown` file without changing the original.                                                                                                        |
+| Save page             | Persist only the active page, including a temporary draft. For a document opened through the local launcher, save to the original file. Ctrl/Cmd+S performs the same action. |
+| Save as               | Download a Markdown copy with a chosen filename. The browser controls the destination according to its download preferences.                                                 |
+| Codex account         | View the ChatGPT account and plan used by the local Codex CLI, start the official ChatGPT sign-in, and inspect the current included usage window.                            |
+| Open minimap          | Open a navigable heading overview. Selecting a section switches to Read mode and focuses that heading.                                                                       |
 
 Presentation and minimap structure comes from the Markdown syntax tree, so fenced code does not create false sections. PDF export and presentation do not modify the document.
 
@@ -157,15 +157,17 @@ flowchart TD
 
 The [Mermaid renderer](https://mermaid.js.org/config/usage.html) loads on demand and follows the active theme. Diagrams use strict security settings and isolated SVG images, without interactive links. Invalid syntax displays an error and the original source; rendering never rewrites the Markdown. Rendering is limited to 50,000 characters and 500 edges per diagram. PDF export waits for diagrams and images to finish loading.
 
-### AI chat
+### Codex assistant
 
-The **Chat with AI** button in the bottom-right corner opens a responsive chat composed from the existing official Nova Popover, Input Group, Button, Checkbox, Badge, and Alert components. The official shadcn MCP was queried for `popover-demo`, `input-group-textarea`, and its audit checklist.
+The **Chat with Codex** button in the bottom-right corner opens a responsive assistant built from the official shadcn/ui Nova Popover, Input Group, Button, Checkbox, Badge, Alert, Dialog, Tabs, and Progress components. The assistant is available through the local DevNotes launcher and requires the [Codex CLI](https://learn.chatgpt.com/docs/codex-cli) on `PATH`.
 
-Configure a base server URL (for example `http://localhost:11434/v1`), model, and optional session-only API key from the chat settings or command palette. The client posts non-streaming requests to `<base URL>/chat/completions` using the [Chat Completions compatibility contract](https://docs.ollama.com/api/openai-compatibility). The server must allow the app origin through CORS and be reachable under the browser's HTTPS rules. No backend proxy is bundled.
+Open **Codex account** from the command palette or the assistant settings button. DevNotes reads the local Codex authentication state and offers the official ChatGPT browser sign-in when needed. Only ChatGPT subscription authentication is supported in the editor. There is no API-key field, the local service does not make API-billed OpenAI API calls, and it never initiates credit purchases. Usage follows the limits included in the connected ChatGPT plan; when that allowance is exhausted, wait for its renewal before continuing in DevNotes. See the official [Codex authentication](https://learn.chatgpt.com/docs/auth) and [pricing](https://learn.chatgpt.com/docs/pricing) documentation for account and plan details.
 
-Enter sends a message; Shift+Enter inserts a line break. Responses render as Markdown. You can interrupt a request, retry an unsuccessful message from the restored composer, minimize without losing the conversation, and start a new conversation. Requests time out after two minutes. Changing the server or model starts a new conversation. Conversations remain in memory and are cleared on reload; chats and API keys are not stored in documents.
+Enter sends a message; Shift+Enter inserts a line break. Responses render as Markdown. You can interrupt a request, retry an unsuccessful message from the restored composer, minimize without losing the conversation, and start a new conversation. Requests time out after three minutes. Conversations and ephemeral Codex thread identifiers remain in the current browser and local-service sessions and are cleared when those sessions end.
 
-The active document is sent only when **Include open document** is checked at send time. Its title and content are captured with that message and remain part of subsequent conversation history until a new conversation starts, even if the checkbox is later cleared. Chat responses never edit workspace documents automatically.
+The active document is sent to Codex only when **Include open document** is checked at send time. Its title and content then remain in that conversation's Codex context until you start a new conversation. Locked documents cannot be attached. Document content is treated as untrusted reference material, and the Codex turn runs from an empty temporary directory with read-only sandboxing, network access disabled for tools, and approval requests denied.
+
+When you explicitly ask Codex to revise the attached document, it can return a complete Markdown proposal. DevNotes opens the proposal in a review dialog with rendered and source views. The current document changes only after you choose **Apply change**, and applying is disabled if the target document is no longer open, editable, and unlocked.
 
 ### Document organization and recovery
 

@@ -122,9 +122,9 @@ export const editorCommandDefinitions = [
   },
   {
     id: 'ai',
-    label: 'Configurar IA',
-    description: 'Definir servidor, modelo e chave da integração de IA.',
-    keywords: 'inteligencia artificial inteligencia modelo api configuracoes',
+    label: 'Conta do Codex',
+    description: 'Conectar o assistente à sua assinatura do ChatGPT.',
+    keywords: 'inteligencia artificial codex chatgpt assinatura conta entrar',
     icon: Bot,
   },
   {
