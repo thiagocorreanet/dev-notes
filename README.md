@@ -22,7 +22,7 @@
 
 Keep debugging notes, code snippets, and architecture decisions in one place. DevNotes runs in your browser, with a folder tree, visual editing, and direct access to Markdown source. On Linux, you can register it as your Markdown application: double-click a `.md` file, edit it in a browser tab, and save it back to disk.
 
-The interface is in Brazilian Portuguese. Documentation and code use English; your documents keep the language you write them in. The browser workspace requires no account and stores notes on your device. AI chat is optional and connects to a server you configure.
+The interface is in Brazilian Portuguese. Documentation and code use English; your documents keep the language you write them in. The browser workspace requires no account and stores notes on your device. The optional Codex assistant uses the ChatGPT account connected to the local Codex CLI.
 
 ## A look inside
 
@@ -75,11 +75,11 @@ Turn document headings into slides or print the active page to PDF. Download ind
 
 ### Ask questions about your notes
 
-Connect a Chat Completions-compatible server, choose a model, and open the built-in chat. You decide whether to include the current document. API keys and conversations stay in page memory, and chat responses never modify your notes automatically. The chosen server must permit browser requests through CORS.
+Open the built-in Codex assistant and connect your ChatGPT subscription through the official OpenAI sign-in. DevNotes does not accept an API key, call the OpenAI API with usage billing, or buy credits. Codex usage follows the limits included in your ChatGPT plan. You decide whether to include the current document in each conversation. Codex can prepare a complete Markdown revision, but DevNotes shows it for review and changes the document only after you choose to apply it.
 
 ## Get started
 
-Use Node.js 24 and npm 11 or later. If you use nvm, `nvm use` selects the version in `.nvmrc`.
+Use Node.js 24 and npm 11 or later. If you use nvm, `nvm use` selects the version in `.nvmrc`. The editor works without an account or Codex installation; the optional assistant additionally requires the [Codex CLI](https://learn.chatgpt.com/docs/codex-cli) on `PATH`.
 
 ```bash
 git clone https://github.com/thiagocorreanet/dev-notes.git

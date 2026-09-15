@@ -8,7 +8,6 @@ import {
   parseWorkspace,
   WORKSPACE_KEY,
 } from '../workspace-storage'
-import { SETTINGS_KEY } from '../ai-settings'
 
 vi.mock('../workspace-files', async (importOriginal) => {
   const original = await importOriginal<typeof import('../workspace-files')>()
@@ -189,31 +188,31 @@ describe('Editor command palette', () => {
     )
   })
 
-  it('persists AI preferences without persisting the API key or sending a request', async () => {
-    const { user, unmount } = setup()
-    const fetch = vi.spyOn(window, 'fetch')
-    await command(user, 'configurar ia', 'Configurar IA')
-    await user.type(
-      screen.getByLabelText('Endereço do servidor'),
-      'https://ai.example.test/v1',
+  it('opens the Codex account dialog and checks the ChatGPT connection', async () => {
+    const fetch = vi.spyOn(window, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          available: true,
+          state: 'connected',
+          email: 'writer@example.com',
+          plan: 'pro',
+          model: 'Padrão do Codex',
+          primary: { usedPercent: 8, resetsAt: null },
+          secondary: null,
+        }),
+      ),
     )
-    await user.type(screen.getByLabelText('Modelo'), 'example-model')
-    await user.type(
-      screen.getByLabelText('Chave de API (opcional)'),
-      'test-session-secret',
+    const { user } = setup()
+    await command(user, 'codex', 'Conta do Codex')
+    expect(
+      await screen.findByRole('heading', { name: 'Assistente Codex' }),
+    ).toBeVisible()
+    expect(screen.getByText('Conectado com o ChatGPT')).toBeVisible()
+    expect(screen.getByText('ChatGPT Pro')).toBeVisible()
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/codex/status',
+      expect.objectContaining({ credentials: 'same-origin' }),
     )
-    await user.click(
-      screen.getByRole('button', { name: 'Salvar configuração' }),
-    )
-    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '')).toEqual({
-      endpoint: 'https://ai.example.test/v1',
-      model: 'example-model',
-    })
-    expect(fetch).not.toHaveBeenCalled()
-    unmount()
-    render(<NotesPage />)
-    await command(user, 'configurar ia', 'Configurar IA')
-    expect(screen.getByLabelText('Modelo')).toHaveValue('example-model')
-    expect(screen.getByLabelText('Chave de API (opcional)')).toHaveValue('')
+    expect(localStorage.getItem('dev-notes-ai-settings')).toBeNull()
   })
 })
