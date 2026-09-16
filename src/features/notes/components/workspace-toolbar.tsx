@@ -63,7 +63,7 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps) {
     },
     {
       label: 'Abrir pasta',
-      description: 'Importar arquivos Markdown de uma pasta',
+      description: 'Importar documentos Markdown e PDF de uma pasta',
       icon: FolderOpen,
       onClick: props.onOpenFolder,
     },

@@ -67,13 +67,11 @@ export function MarkdownDropZone({
         <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
           <FileUp aria-hidden="true" className="size-8 text-primary" />
           <p className="font-medium">
-            {busy
-              ? 'Aguarde a operação terminar'
-              : 'Solte os arquivos Markdown aqui'}
+            {busy ? 'Aguarde a operação terminar' : 'Solte os documentos aqui'}
           </p>
           <p className="text-sm text-muted-foreground">
-            Arquivos .md e .markdown abrem como cópias. Os originais não serão
-            alterados.
+            Markdown abre como cópia; PDF abre somente para leitura. Os
+            originais não serão alterados.
           </p>
         </CardContent>
       </Card>

@@ -1,5 +1,6 @@
 import { WorkspaceError } from './workspace-error'
 import { parseProtectedMarkdown } from './document-protection'
+import { isPdfFilename, readPdfFile } from './pdf-files'
 import type { Note, WorkspaceFolder } from './types'
 
 export interface LocalFileHandle {
@@ -43,12 +44,21 @@ export interface FileSource {
 
 export interface ImportedFolder {
   notes: Note[]
+  pdfs: ImportedPdf[]
   folders: WorkspaceFolder[]
   sources: Map<string, FileSource>
 }
 
+export interface ImportedPdf {
+  note: Note
+  data: Uint8Array
+  handle?: LocalFileHandle
+  fileName: string
+}
+
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024
+const MAX_TOTAL_PDF_BYTES = 100 * 1024 * 1024
 const MAX_ENTRIES = 10000
 const MARKDOWN_EXTENSION = /\.(md|markdown)$/i
 const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules'])
@@ -79,17 +89,23 @@ export async function readMarkdownFile(file: File) {
 }
 
 function finishDirectoryImport(result: ImportedFolder): ImportedFolder {
-  if (!result.notes.length && !result.folders.length)
-    throw new WorkspaceError('Nenhuma pasta ou arquivo Markdown pôde ser lido.')
+  if (!result.notes.length && !result.pdfs.length && !result.folders.length)
+    throw new WorkspaceError('Nenhuma pasta ou documento pôde ser lido.')
   return result
 }
 
 export async function importDirectory(
   handle: LocalDirectoryHandle,
 ): Promise<ImportedFolder> {
-  const result: ImportedFolder = { notes: [], folders: [], sources: new Map() }
+  const result: ImportedFolder = {
+    notes: [],
+    pdfs: [],
+    folders: [],
+    sources: new Map(),
+  }
   let entries = 0
   let totalBytes = 0
+  let totalPdfBytes = 0
   async function visit(
     directory: LocalDirectoryHandle,
     path: string,
@@ -135,6 +151,27 @@ export async function importDirectory(
           fileName: entry.name,
           baseline: parsed,
         })
+      } else if (isPdfFilename(entry.name)) {
+        const file = await entry.getFile()
+        totalPdfBytes += file.size
+        if (totalPdfBytes > MAX_TOTAL_PDF_BYTES)
+          throw new WorkspaceError(
+            'Os arquivos PDF ultrapassam o limite total de 100 MB. Abra uma pasta menor.',
+          )
+        const pdf = await readPdfFile(file)
+        result.pdfs.push({
+          note: {
+            id: crypto.randomUUID(),
+            title: pdf.title,
+            content: '',
+            mediaType: 'pdf',
+            folderId: folder.id,
+            sourcePath: `${path}/${entry.name}`,
+          },
+          data: pdf.data,
+          handle: entry,
+          fileName: entry.name,
+        })
       }
     }
   }
@@ -143,9 +180,15 @@ export async function importDirectory(
 }
 
 export async function importFileList(files: File[]): Promise<ImportedFolder> {
-  const result: ImportedFolder = { notes: [], folders: [], sources: new Map() }
+  const result: ImportedFolder = {
+    notes: [],
+    pdfs: [],
+    folders: [],
+    sources: new Map(),
+  }
   const foldersByPath = new Map<string, string>()
   let totalBytes = 0
+  let totalPdfBytes = 0
   if (files.length > MAX_ENTRIES)
     throw new WorkspaceError(
       'Esta pasta tem arquivos e subpastas demais. Abra uma pasta menor.',
@@ -169,28 +212,48 @@ export async function importFileList(files: File[]): Promise<ImportedFolder> {
       }
       parentId = id
     }
-    if (!MARKDOWN_EXTENSION.test(file.name)) continue
-    totalBytes += file.size
-    if (totalBytes > MAX_TOTAL_BYTES)
-      throw new WorkspaceError(
-        'Os arquivos Markdown ultrapassam o limite total de 20 MB. Abra uma pasta menor.',
-      )
-    const parsed = await readMarkdownFile(file)
-    const note: Note = {
-      id: crypto.randomUUID(),
-      ...parsed,
-      sourcePath: path,
-      ...(parentId ? { folderId: parentId } : {}),
+    if (MARKDOWN_EXTENSION.test(file.name)) {
+      totalBytes += file.size
+      if (totalBytes > MAX_TOTAL_BYTES)
+        throw new WorkspaceError(
+          'Os arquivos Markdown ultrapassam o limite total de 20 MB. Abra uma pasta menor.',
+        )
+      const parsed = await readMarkdownFile(file)
+      const note: Note = {
+        id: crypto.randomUUID(),
+        ...parsed,
+        sourcePath: path,
+        ...(parentId ? { folderId: parentId } : {}),
+      }
+      if (note.protection)
+        note.protection = { ...note.protection, ownerId: note.id }
+      result.notes.push(note)
+      result.sources.set(note.id, { fileName: file.name, baseline: parsed })
+    } else if (isPdfFilename(file.name)) {
+      totalPdfBytes += file.size
+      if (totalPdfBytes > MAX_TOTAL_PDF_BYTES)
+        throw new WorkspaceError(
+          'Os arquivos PDF ultrapassam o limite total de 100 MB. Abra uma pasta menor.',
+        )
+      const pdf = await readPdfFile(file)
+      result.pdfs.push({
+        note: {
+          id: crypto.randomUUID(),
+          title: pdf.title,
+          content: '',
+          mediaType: 'pdf',
+          sourcePath: path,
+          ...(parentId ? { folderId: parentId } : {}),
+        },
+        data: pdf.data,
+        fileName: file.name,
+      })
     }
-    if (note.protection)
-      note.protection = { ...note.protection, ownerId: note.id }
-    result.notes.push(note)
-    result.sources.set(note.id, { fileName: file.name, baseline: parsed })
   }
   return finishDirectoryImport(result)
 }
 
-export function downloadFile(name: string, content: string, type: string) {
+export function downloadFile(name: string, content: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }))
   const link = document.createElement('a')
   link.href = url

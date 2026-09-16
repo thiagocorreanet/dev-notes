@@ -105,7 +105,7 @@ describe('Editor comfort', () => {
       ],
     }
     fireEvent.dragEnter(window, { dataTransfer })
-    expect(screen.getByText('Solte os arquivos Markdown aqui')).toBeVisible()
+    expect(screen.getByText('Solte os documentos aqui')).toBeVisible()
     const drop = new Event('drop', { cancelable: true, bubbles: true })
     Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer })
     fireEvent(window, drop)
@@ -119,7 +119,7 @@ describe('Editor comfort', () => {
       parseWorkspace(localStorage.getItem(WORKSPACE_KEY)!).notes,
     ).toHaveLength(3)
     expect(
-      screen.queryByText('Solte os arquivos Markdown aqui'),
+      screen.queryByText('Solte os documentos aqui'),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Salvar arquivo original' }),
@@ -139,7 +139,7 @@ describe('Editor comfort', () => {
     })
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
-        'Selecione apenas arquivos Markdown.',
+        'Selecione apenas arquivos Markdown ou PDF.',
       ),
     )
     expect(screen.getByRole('heading', { name: 'Guide' })).toBeVisible()

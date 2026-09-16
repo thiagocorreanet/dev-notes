@@ -17,7 +17,11 @@ import {
   importFileList,
   readMarkdownFile,
 } from '../workspace-files'
-import type { FileSource, ImportedFolder } from '../workspace-files'
+import type {
+  FileSource,
+  ImportedFolder,
+  ImportedPdf,
+} from '../workspace-files'
 import { useNotes } from './use-notes'
 import { useLocalFolder } from './use-local-folder'
 import {
@@ -29,10 +33,16 @@ import {
 } from '../document-protection'
 import type { WorkspaceTarget } from '../workspace-actions'
 import { clearTextHighlights } from '../text-highlights'
+import { isPdfFilename, readPdfFile } from '../pdf-files'
+
+type PdfWorkspaceDocument = ImportedPdf
 
 export function useWorkspace() {
   const store = useNotes()
   const [drafts, setDrafts] = useState<Note[]>([])
+  const [pdfFiles, setPdfFiles] = useState(
+    new Map<string, PdfWorkspaceDocument>(),
+  )
   const [localLaunch] = useState(() => requestedLocalFile() !== null)
   const [initialTabs] = useState(() =>
     localLaunch ? { ids: [], activeId: null } : loadTabs(),
@@ -88,6 +98,7 @@ export function useWorkspace() {
   }
   const documents = [
     ...localDocuments.notes.map(revealNote),
+    ...[...pdfFiles.values()].map((file) => file.note),
     ...drafts,
     ...store.notes
       .map(revealNote)
@@ -178,11 +189,12 @@ export function useWorkspace() {
   function targetNotes(target: WorkspaceTarget) {
     if (target.kind === 'note') {
       const note = documents.find((item) => item.id === target.id)
-      return note ? [note] : []
+      return note?.mediaType === 'pdf' ? [] : note ? [note] : []
     }
     const folders = descendantFolderIds(store.folders, target.id)
     return documents.filter(
-      (note) => note.folderId && folders.has(note.folderId),
+      (note) =>
+        note.mediaType !== 'pdf' && note.folderId && folders.has(note.folderId),
     )
   }
 
@@ -394,6 +406,11 @@ export function useWorkspace() {
 
   function performAction(action: WorkspaceAction) {
     setActionError(null)
+    if (
+      action.kind === 'note' &&
+      documents.find((note) => note.id === action.id)?.mediaType === 'pdf'
+    )
+      throw new WorkspaceError('PDFs ficam disponíveis somente para leitura.')
     if (action.type === 'duplicate') {
       const protectedDescendant =
         action.kind === 'folder' &&
@@ -416,12 +433,17 @@ export function useWorkspace() {
           'Remova a proteção antes de mover este item para dentro ou para fora de uma pasta protegida.',
         )
     }
-    const localResult = localDocuments.notes.length
+    const actionableDocuments = documents.filter(
+      (note) => note.mediaType !== 'pdf',
+    )
+    const localResult = localDocuments.notes.some(
+      (note) => note.mediaType !== 'pdf',
+    )
       ? applyWorkspaceAction(
           {
             ...emptyWorkspace(),
             notes: [
-              ...documents,
+              ...actionableDocuments,
               ...store.notes.filter((note) => note.deletedAt),
             ],
             folders: store.folders,
@@ -430,7 +452,8 @@ export function useWorkspace() {
         )
       : null
     if (localResult)
-      for (const note of localDocuments.notes) store.saveNote(note)
+      for (const note of localDocuments.notes)
+        if (note.mediaType !== 'pdf') store.saveNote(note)
     const virtual = documents.find((note) => note.id === action.id)
     if (
       action.kind === 'note' &&
@@ -472,7 +495,9 @@ export function useWorkspace() {
 
   function selectNote(id: string) {
     activate(id)
-    setSelectedFolder(documents.find((note) => note.id === id)?.folderId)
+    const note = documents.find((note) => note.id === id)
+    setSelectedFolder(note?.folderId)
+    if (note?.mediaType === 'pdf') setMode('read')
   }
 
   function openSearchResult(id: string) {
@@ -509,6 +534,7 @@ export function useWorkspace() {
   }
 
   function editNote(note: Note) {
+    if (note.mediaType === 'pdf') return
     const stored = [...store.notes, ...localDocuments.notes].find(
       (item) => item.id === note.id,
     )
@@ -559,8 +585,12 @@ export function useWorkspace() {
 
   async function savePage() {
     if (pageSaveInProgress.current || localDocuments.recovery) return false
-    pageSaveInProgress.current = true
     const note = activeNote
+    if (note.mediaType === 'pdf') {
+      setMessage('PDF aberto somente para leitura.')
+      return false
+    }
+    pageSaveInProgress.current = true
     setSaveFeedback({ note, phase: 'saving' })
     setActionError(null)
     try {
@@ -644,20 +674,26 @@ export function useWorkspace() {
   function finishImport(result: ImportedFolder, openAll = false) {
     store.importFolder(result.notes, result.folders)
     for (const [id, source] of result.sources) sources.current.set(id, source)
+    setPdfFiles((current) => {
+      const next = new Map(current)
+      for (const pdf of result.pdfs) next.set(pdf.note.id, pdf)
+      return next
+    })
     setExpandedFolders(
       (current) =>
         new Set([...current, ...result.folders.map((folder) => folder.id)]),
     )
     setSelectedFolder(result.folders[0]?.id)
-    const first = result.notes[0]
+    const imported = [...result.notes, ...result.pdfs.map((pdf) => pdf.note)]
+    const first = imported[0]
     setEmptyFolderOpen(!first)
     setActiveId(first?.id ?? null)
     setOpenIds(
-      openAll ? result.notes.map((note) => note.id) : first ? [first.id] : [],
+      openAll ? imported.map((note) => note.id) : first ? [first.id] : [],
     )
     setQuery('')
     setMessage(
-      `Importação concluída: ${result.folders.length} ${result.folders.length === 1 ? 'pasta' : 'pastas'} e ${result.notes.length} ${result.notes.length === 1 ? 'arquivo Markdown' : 'arquivos Markdown'}. Os arquivos originais não foram alterados.`,
+      `Importação concluída: ${result.notes.length} ${result.notes.length === 1 ? 'arquivo Markdown' : 'arquivos Markdown'} e ${result.pdfs.length} ${result.pdfs.length === 1 ? 'PDF' : 'PDFs'}. Os originais não foram alterados; PDFs ficam disponíveis nesta sessão.`,
     )
   }
 
@@ -691,11 +727,38 @@ export function useWorkspace() {
     }
   }
 
-  async function openMarkdownFile(file?: File) {
+  async function openDocumentFile(file?: File) {
     if (!file) return
     setBusy(true)
     setActionError(null)
     try {
+      if (isPdfFilename(file.name)) {
+        const pdf = await readPdfFile(file)
+        const note: Note = {
+          id: crypto.randomUUID(),
+          title: pdf.title,
+          content: '',
+          mediaType: 'pdf',
+          sourcePath: file.name,
+        }
+        setPdfFiles((current) =>
+          new Map(current).set(note.id, {
+            note,
+            data: pdf.data,
+            fileName: file.name,
+          }),
+        )
+        setEmptyFolderOpen(false)
+        setActiveId(note.id)
+        setOpenIds([note.id])
+        setSelectedFolder(undefined)
+        setQuery('')
+        setMode('read')
+        setMessage(
+          `PDF "${file.name}" aberto somente para leitura nesta sessão.`,
+        )
+        return
+      }
       const parsed = await readMarkdownFile(file)
       const note = { id: crypto.randomUUID(), ...parsed, sourcePath: file.name }
       if (note.protection)
@@ -725,21 +788,21 @@ export function useWorkspace() {
     try {
       if (
         files.length > 100 ||
-        files.reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024
+        files.reduce((total, file) => total + file.size, 0) > 100 * 1024 * 1024
       )
         throw new WorkspaceError(
-          'Solte até 100 arquivos, com no máximo 20 MB no total.',
+          'Solte até 100 arquivos, com no máximo 100 MB no total.',
         )
-      if (files.some((file) => !/\.(md|markdown)$/i.test(file.name)))
-        throw new WorkspaceError('Selecione apenas arquivos Markdown.')
+      if (files.some((file) => !/\.(md|markdown|pdf)$/i.test(file.name)))
+        throw new WorkspaceError('Selecione apenas arquivos Markdown ou PDF.')
       const result = await importFileList(files)
       finishImport(result, true)
-      const notes = result.notes
+      const documents = result.notes.length + result.pdfs.length
       setSelectedFolder(undefined)
       setQuery('')
       setMode('read')
       setMessage(
-        `${notes.length} ${notes.length === 1 ? 'arquivo aberto como cópia' : 'arquivos abertos como cópias'}. Os originais não foram alterados.`,
+        `${documents} ${documents === 1 ? 'documento aberto' : 'documentos abertos'}. Os originais não foram alterados; PDFs ficam somente para leitura nesta sessão.`,
       )
     } catch (error) {
       reportError(error)
@@ -749,6 +812,21 @@ export function useWorkspace() {
   }
 
   async function applyRefresh(note: Note, file: File) {
+    if (note.mediaType === 'pdf') {
+      const pdf = await readPdfFile(file)
+      setPdfFiles((current) => {
+        const previous = current.get(note.id)
+        if (!previous) return current
+        return new Map(current).set(note.id, {
+          ...previous,
+          note: { ...note, title: pdf.title },
+          data: pdf.data,
+          fileName: file.name,
+        })
+      })
+      setMessage(`PDF "${file.name}" recarregado do original.`)
+      return
+    }
     if (note.protection)
       throw new WorkspaceError(
         'Remova a proteção antes de recarregar este documento do original.',
@@ -768,6 +846,27 @@ export function useWorkspace() {
     setRefreshConfirmation(null)
     if (localDocuments.has(note.id)) {
       await localDocuments.reload(note.id)
+      return
+    }
+    if (note.mediaType === 'pdf') {
+      const pdf = pdfFiles.get(note.id)
+      if (!pdf?.handle) {
+        refreshTarget.current = note
+        setMessage(
+          `Selecione "${pdf?.fileName ?? note.sourcePath?.split('/').at(-1) ?? 'o PDF original'}" para recarregá-lo.`,
+        )
+        refreshInput.current?.click()
+        return
+      }
+      setBusy(true)
+      setActionError(null)
+      try {
+        await applyRefresh(note, await pdf.handle.getFile())
+      } catch (error) {
+        reportError(error)
+      } finally {
+        setBusy(false)
+      }
       return
     }
     const source = sources.current.get(note.id)
@@ -792,6 +891,10 @@ export function useWorkspace() {
 
   function requestRefresh() {
     if (!activeNote.sourcePath) return
+    if (activeNote.mediaType === 'pdf') {
+      void refreshFile(activeNote)
+      return
+    }
     if (activeNote.protection) {
       setActionError(
         'Remova a proteção antes de recarregar este documento do original.',
@@ -816,7 +919,9 @@ export function useWorkspace() {
     setActionError(null)
     try {
       const expectedName =
-        sources.current.get(note.id)?.fileName ??
+        (note.mediaType === 'pdf'
+          ? pdfFiles.get(note.id)?.fileName
+          : sources.current.get(note.id)?.fileName) ??
         note.sourcePath?.split('/').at(-1)
       if (file.name !== expectedName)
         throw new WorkspaceError(
@@ -841,7 +946,10 @@ export function useWorkspace() {
   }
 
   const localFolder = useLocalFolder({
-    notes: [...documents, ...store.notes.filter((note) => note.deletedAt)],
+    notes: [
+      ...documents.filter((note) => note.mediaType !== 'pdf'),
+      ...store.notes.filter((note) => note.deletedAt),
+    ],
     folders: store.folders,
     saveNote: (note, forceRevision) => {
       const saved = store.saveNote(note, forceRevision)
@@ -865,6 +973,8 @@ export function useWorkspace() {
 
   return {
     ...store,
+    pdfData: (id: string) =>
+      localDocuments.pdfData(id) ?? pdfFiles.get(id)?.data,
     localFolder,
     localDocuments,
     restoreRevision: (id: string, revisionId: string) => {
@@ -948,7 +1058,7 @@ export function useWorkspace() {
     newDocument,
     editNote,
     savePage,
-    openMarkdownFile,
+    openDocumentFile,
     openDroppedFiles,
     createPage,
     createFolder,

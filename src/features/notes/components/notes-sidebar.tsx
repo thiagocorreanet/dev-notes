@@ -3,6 +3,7 @@ import type { ItemActionRequest } from './item-actions'
 import { Star, Trash2 } from 'lucide-react'
 import {
   ChevronRight,
+  FileType2,
   FileText,
   Folder,
   FolderOpen,
@@ -242,40 +243,52 @@ export function NotesSidebar({
           const ownerId = protectionOwner({ kind: 'note', id: note.id })
           const protectedNote = !!ownerId
           const locked = isNoteLocked(note.id)
+          const pdf = note.mediaType === 'pdf'
+          const button = (
+            <SidebarMenuButton
+              isActive={note.id === activeId}
+              aria-current={note.id === activeId ? 'page' : undefined}
+              title={note.sourcePath ?? note.title}
+              onClick={() => {
+                onSelect(note.id)
+                setOpenMobile(false)
+              }}
+            >
+              {pdf ? (
+                <FileType2 aria-hidden="true" />
+              ) : (
+                <FileText aria-hidden="true" />
+              )}
+              <span>{note.title || 'Documento sem título'}</span>
+              {protectedNote && (
+                <LockKeyhole
+                  className="ml-auto size-3.5"
+                  aria-label={
+                    locked ? 'Documento bloqueado' : 'Documento protegido'
+                  }
+                />
+              )}
+            </SidebarMenuButton>
+          )
           return (
             <SidebarMenuItem key={note.id}>
-              <ItemContextMenu
-                target={{ kind: 'note', id: note.id }}
-                name={note.title}
-                favorite={note.favorite}
-                disabled={busy || !onItemAction}
-                protected={protectedNote}
-                locked={locked}
-                protectionOwner={ownerId === note.id}
-                onAction={(request) => onItemAction?.(request)}
-              >
-                <SidebarMenuButton
-                  isActive={note.id === activeId}
-                  aria-current={note.id === activeId ? 'page' : undefined}
-                  title={note.sourcePath ?? note.title}
-                  onClick={() => {
-                    onSelect(note.id)
-                    setOpenMobile(false)
-                  }}
+              {pdf ? (
+                button
+              ) : (
+                <ItemContextMenu
+                  target={{ kind: 'note', id: note.id }}
+                  name={note.title}
+                  favorite={note.favorite}
+                  disabled={busy || !onItemAction}
+                  protected={protectedNote}
+                  locked={locked}
+                  protectionOwner={ownerId === note.id}
+                  onAction={(request) => onItemAction?.(request)}
                 >
-                  <FileText aria-hidden="true" />
-                  <span>{note.title || 'Documento sem título'}</span>
-                  {protectedNote && (
-                    <LockKeyhole
-                      className="ml-auto size-3.5"
-                      aria-label={
-                        locked ? 'Documento bloqueado' : 'Documento protegido'
-                      }
-                    />
-                  )}
-                </SidebarMenuButton>
-              </ItemContextMenu>
-              {onItemAction && (
+                  {button}
+                </ItemContextMenu>
+              )}
+              {onItemAction && !pdf && (
                 <ItemDropdown
                   target={{ kind: 'note', id: note.id }}
                   name={note.title || 'Documento sem título'}
@@ -313,7 +326,7 @@ export function NotesSidebar({
         <div className="space-y-2">
           <DevNotesBrand />
           <p className="text-xs text-muted-foreground">
-            Suas notas de desenvolvimento em Markdown.
+            Seus documentos de desenvolvimento em Markdown e PDF.
           </p>
         </div>
         <div className="flex items-center justify-between gap-2">
@@ -340,12 +353,12 @@ export function NotesSidebar({
         </div>
         <div>
           <Label htmlFor="note-search" className="sr-only">
-            Buscar notas
+            Buscar documentos
           </Label>
           <SidebarInput
             id="note-search"
             type="search"
-            placeholder="Buscar notas e pastas…"
+            placeholder="Buscar documentos e pastas…"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
           />
@@ -386,12 +399,12 @@ export function NotesSidebar({
                 <SidebarMenu>{renderItems()}</SidebarMenu>
               </nav>
               <p role="status" className="sr-only">
-                {`${filteredNotes.length} ${filteredNotes.length === 1 ? 'nota' : 'notas'} e ${visibleFolders.size} ${visibleFolders.size === 1 ? 'pasta encontrada' : 'pastas encontradas'}.`}
+                {`${filteredNotes.length} ${filteredNotes.length === 1 ? 'documento' : 'documentos'} e ${visibleFolders.size} ${visibleFolders.size === 1 ? 'pasta encontrada' : 'pastas encontradas'}.`}
               </p>
             </>
           ) : search ? (
             <p role="status" className="p-3 text-sm text-muted-foreground">
-              Nenhuma nota ou pasta encontrada. Tente outra busca.
+              Nenhum documento ou pasta encontrado. Tente outra busca.
             </p>
           ) : (
             <>
@@ -405,7 +418,8 @@ export function NotesSidebar({
                   </EmptyMedia>
                   <EmptyTitle>Nenhum arquivo ou pasta aberto</EmptyTitle>
                   <EmptyDescription>
-                    Abra um arquivo Markdown ou escolha uma pasta para começar.
+                    Abra um documento Markdown ou PDF, ou escolha uma pasta para
+                    começar.
                   </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent className="flex-row justify-center">
@@ -450,7 +464,7 @@ export function NotesSidebar({
           onClick={() => leaveSidebar(onOpenFile)}
         >
           <Upload aria-hidden="true" />
-          Abrir arquivo Markdown
+          Abrir documento
         </Button>
         <p className="font-medium text-sidebar-foreground">
           Guarde o que aprende. Desenvolva melhor.

@@ -11,7 +11,8 @@ const executable = join(directory, 'devnotes')
 const desktopId = 'devnotes-local.desktop'
 const desktopFile = join(data, 'applications', desktopId)
 const metadataFile = join(directory, 'associations.json')
-const mimeTypes = ['text/markdown', 'text/x-markdown']
+const mimeTypes = ['text/markdown', 'text/x-markdown', 'application/pdf']
+const defaultMimeTypes = ['text/markdown', 'text/x-markdown']
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
 const desktopQuote = (value: string) =>
   `"${value.replace(/[\\"`$]/g, '\\$&').replaceAll('%', '%%')}"`
@@ -42,7 +43,7 @@ async function main() {
     )
   const previous = await previousAssociations()
   if (process.argv.includes('--uninstall')) {
-    for (const type of mimeTypes) {
+    for (const type of defaultMimeTypes) {
       if (mime('query', 'default', type) === desktopId && previous[type])
         mime('default', previous[type], type)
     }
@@ -67,7 +68,7 @@ async function main() {
         'Type=Application',
         'Version=1.0',
         'Name=DevNotes',
-        'Comment=Open Markdown documents in your browser',
+        'Comment=Open Markdown and PDF documents in your browser',
         `Exec=/bin/sh ${desktopQuote(executable)} %F`,
         'Terminal=false',
         'StartupNotify=false',
@@ -78,16 +79,16 @@ async function main() {
       ].join('\n'),
     )
     if (process.argv.includes('--default')) {
-      for (const type of mimeTypes) {
+      for (const type of defaultMimeTypes) {
         const current = mime('query', 'default', type)
         if (current !== desktopId && !(type in previous))
           previous[type] = current
       }
       await writeFile(metadataFile, JSON.stringify(previous, null, 2))
-      for (const type of mimeTypes) mime('default', desktopId, type)
+      for (const type of defaultMimeTypes) mime('default', desktopId, type)
     }
     console.log(
-      `Installed ${desktopFile}\nMarkdown files can now open in DevNotes through the default browser.`,
+      `Installed ${desktopFile}\nMarkdown and PDF files can now open in DevNotes through the default browser.`,
     )
   }
   try {

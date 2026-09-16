@@ -152,7 +152,7 @@ test('opens dropped files as copies and fits a narrow viewport', async ({
   })
   await page.dispatchEvent('body', 'dragenter', { dataTransfer })
   await expect(
-    page.getByText('Solte os arquivos Markdown aqui', { exact: true }),
+    page.getByText('Solte os documentos aqui', { exact: true }),
   ).toBeVisible()
   await page.dispatchEvent('body', 'drop', { dataTransfer })
   await expect(

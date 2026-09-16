@@ -48,8 +48,13 @@ describe('Workspace command search', () => {
     await user.keyboard('{Enter}')
     expect(run).toHaveBeenCalledExactlyOnceWith('save-as')
     await user.keyboard('{Control>}k{/Control}')
-    await user.type(screen.getByRole('combobox'), 'pdf')
-    expect(screen.getByRole('option')).toHaveAttribute('aria-disabled', 'true')
+    await user.type(
+      screen.getByRole('combobox'),
+      'salvar arquivo aberto em pdf',
+    )
+    expect(
+      screen.getByRole('option', { name: 'Salvar arquivo aberto em PDF' }),
+    ).toHaveAttribute('aria-disabled', 'true')
     await user.keyboard('{Enter}')
     expect(run).toHaveBeenCalledOnce()
   })
