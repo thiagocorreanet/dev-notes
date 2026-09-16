@@ -38,6 +38,7 @@ export function LocalFolderDialog({
 }) {
   const [path, setPath] = useState(markdownFilename(note.title))
   const [reviewId, setReviewId] = useState<string | null>(null)
+  const isPdf = note.mediaType === 'pdf'
   const active = sync.files.find((file) => file.noteId === note.id)
   const review = sync.files.find((file) => file.noteId === reviewId)
   return (
@@ -59,8 +60,8 @@ export function LocalFolderDialog({
         <DialogHeader>
           <DialogTitle>Pasta local</DialogTitle>
           <DialogDescription>
-            Conecte uma pasta para ler e salvar arquivos Markdown. As edições
-            ficam no navegador até você salvar na pasta.
+            Conecte uma pasta para ler e salvar arquivos Markdown e visualizar
+            PDFs. As edições ficam no navegador até você salvar na pasta.
           </DialogDescription>
         </DialogHeader>
         {sync.error && (
@@ -121,43 +122,59 @@ export function LocalFolderDialog({
               uma nota no DevNotes não renomeia, move ou exclui o arquivo na
               pasta. Mudanças externas são verificadas manualmente.
             </p>
-            <section
-              className="min-w-0 space-y-3 rounded-lg border p-4"
-              aria-label="Salvar documento na pasta"
-            >
-              <h3 className="break-words text-sm font-semibold">
-                Documento aberto: {note.title || 'Documento sem título'}
-              </h3>
-              {active ? (
-                <p className="break-words text-sm text-muted-foreground">
-                  {active.path} · {statusLabels[active.status]}
-                </p>
-              ) : (
-                <div className="min-w-0 space-y-2">
-                  <Label htmlFor="local-file-path">Caminho na pasta</Label>
-                  <Input
-                    id="local-file-path"
-                    value={path}
-                    disabled={sync.busy}
-                    onChange={(event) => setPath(event.target.value)}
-                    placeholder="projeto/minha-nota.md"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Subpastas serão criadas ao salvar. Arquivos existentes não
-                    serão substituídos por uma nova nota.
-                  </p>
-                </div>
-              )}
-              <Button
-                className="h-auto min-h-8 max-w-full whitespace-normal"
-                disabled={sync.busy || note.id === 'empty-workspace'}
-                onClick={() => {
-                  void sync.save(note.id, path)
-                }}
+            {isPdf ? (
+              <section
+                className="min-w-0 space-y-2 rounded-lg border p-4"
+                aria-label="PDF conectado"
               >
-                Salvar documento na pasta
-              </Button>
-            </section>
+                <h3 className="break-words text-sm font-semibold">
+                  PDF aberto: {note.title || 'Documento sem título'}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Este PDF está disponível somente para leitura. Use Verificar
+                  alterações da pasta para recarregar arquivos adicionados,
+                  alterados ou removidos.
+                </p>
+              </section>
+            ) : (
+              <section
+                className="min-w-0 space-y-3 rounded-lg border p-4"
+                aria-label="Salvar documento na pasta"
+              >
+                <h3 className="break-words text-sm font-semibold">
+                  Documento aberto: {note.title || 'Documento sem título'}
+                </h3>
+                {active ? (
+                  <p className="break-words text-sm text-muted-foreground">
+                    {active.path} · {statusLabels[active.status]}
+                  </p>
+                ) : (
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor="local-file-path">Caminho na pasta</Label>
+                    <Input
+                      id="local-file-path"
+                      value={path}
+                      disabled={sync.busy}
+                      onChange={(event) => setPath(event.target.value)}
+                      placeholder="projeto/minha-nota.md"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Subpastas serão criadas ao salvar. Arquivos existentes não
+                      serão substituídos por uma nova nota.
+                    </p>
+                  </div>
+                )}
+                <Button
+                  className="h-auto min-h-8 max-w-full whitespace-normal"
+                  disabled={sync.busy || note.id === 'empty-workspace'}
+                  onClick={() => {
+                    void sync.save(note.id, path)
+                  }}
+                >
+                  Salvar documento na pasta
+                </Button>
+              </section>
+            )}
             <ul className="divide-y" aria-label="Arquivos conectados">
               {sync.files.map((file) => (
                 <li
@@ -205,10 +222,15 @@ export function LocalFolderDialog({
                 </li>
               ))}
             </ul>
-            {!sync.files.length && (
+            {!!sync.pdfCount && (
               <p className="text-sm text-muted-foreground">
-                Nenhum arquivo Markdown conectado. Salve o documento aberto para
-                criar o primeiro arquivo.
+                {`${sync.pdfCount} ${sync.pdfCount === 1 ? 'PDF disponível' : 'PDFs disponíveis'} somente para leitura na barra lateral.`}
+              </p>
+            )}
+            {!sync.files.length && !sync.pdfCount && (
+              <p className="text-sm text-muted-foreground">
+                Nenhum arquivo Markdown ou PDF conectado. Salve o documento
+                aberto para criar o primeiro arquivo.
               </p>
             )}
             {review && (

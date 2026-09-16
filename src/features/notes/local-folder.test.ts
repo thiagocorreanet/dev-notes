@@ -47,17 +47,18 @@ describe('Local folder synchronization', () => {
       '# Renamed\n\nOriginal',
     )
   })
-  it('scans nested Markdown and ignores repository internals', async () => {
+  it('scans nested Markdown and PDFs and ignores repository internals', async () => {
     const { root } = localFolderFixture({
       'guide.md': 'Root',
       'sub/task.MD': 'Nested',
+      'sub/reference.pdf': '%PDF-1.7\n%%EOF',
       '.git/a.md': 'Ignored',
       'node_modules/a.md': 'Ignored',
       'photo.png': 'Ignored',
     })
     expect(
       (await scanLocalFolder(root)).map((item) => item.path).sort(),
-    ).toEqual(['guide.md', 'sub/task.MD'])
+    ).toEqual(['guide.md', 'sub/reference.pdf', 'sub/task.MD'])
   })
   it.each([
     '../note.md',

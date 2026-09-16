@@ -3,11 +3,24 @@ import type { LocalDirectoryHandle, LocalFileHandle } from './workspace-files'
 import { parseMarkdownFile } from './workspace-files'
 import { WorkspaceError } from './workspace-error'
 import { serializeProtectedMarkdown } from './document-protection'
+import { readPdfFile } from './pdf-files'
 
-export interface DiskFile {
+export interface DiskMarkdownFile {
+  type: 'markdown'
   path: string
   raw: string
 }
+
+export interface DiskPdfFile {
+  type: 'pdf'
+  path: string
+  title: string
+  data: Uint8Array
+  fileName: string
+  handle: LocalFileHandle
+}
+
+export type DiskFile = DiskMarkdownFile | DiskPdfFile
 
 export interface SyncedFile {
   noteId: string
@@ -84,7 +97,8 @@ export async function scanLocalFolder(
 ): Promise<DiskFile[]> {
   const files: DiskFile[] = []
   let entries = 0
-  let bytes = 0
+  let markdownBytes = 0
+  let pdfBytes = 0
   async function visit(directory: LocalDirectoryHandle, prefix: string) {
     for await (const entry of directory.values()) {
       if (++entries > 10000)
@@ -96,12 +110,32 @@ export async function scanLocalFolder(
           await visit(entry, `${prefix}${entry.name}/`)
       } else if (/\.(md|markdown)$/i.test(entry.name)) {
         const file = await entry.getFile()
-        bytes += file.size
-        if (file.size > 2 * 1024 * 1024 || bytes > 20 * 1024 * 1024)
+        markdownBytes += file.size
+        if (file.size > 2 * 1024 * 1024 || markdownBytes > 20 * 1024 * 1024)
           throw new WorkspaceError(
             'A pasta excede os limites: 2 MB por arquivo e 20 MB de Markdown no total.',
           )
-        files.push({ path: `${prefix}${entry.name}`, raw: await file.text() })
+        files.push({
+          type: 'markdown',
+          path: `${prefix}${entry.name}`,
+          raw: await file.text(),
+        })
+      } else if (/\.pdf$/i.test(entry.name)) {
+        const file = await entry.getFile()
+        pdfBytes += file.size
+        if (pdfBytes > 100 * 1024 * 1024)
+          throw new WorkspaceError(
+            'A pasta excede o limite de 100 MB de PDFs no total.',
+          )
+        const pdf = await readPdfFile(file)
+        files.push({
+          type: 'pdf',
+          path: `${prefix}${entry.name}`,
+          title: pdf.title,
+          data: pdf.data,
+          fileName: entry.name,
+          handle: entry,
+        })
       }
     }
   }

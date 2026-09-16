@@ -162,6 +162,40 @@ describe('Connected workspace', () => {
     )
     expect(disk.get('guide.md')).toBe(original)
   })
+  it('discovers PDFs added to a connected folder and removes missing PDFs from the sidebar', async () => {
+    const { result, disk } = setup()
+    await act(() => result.current.localFolder.connect())
+    const bytes = new TextEncoder().encode('%PDF-1.7\n%%EOF')
+    disk.set('reference.pdf', bytes)
+
+    await act(() => result.current.localFolder.check())
+
+    const pdf = result.current.documents.find(
+      (item) => item.sourcePath === 'Project/reference.pdf',
+    )
+    expect(pdf).toMatchObject({
+      title: 'reference',
+      mediaType: 'pdf',
+    })
+    expect(pdf?.folderId).toBe(
+      result.current.folders.find((folder) => folder.name === 'Project')?.id,
+    )
+    expect(Array.from(result.current.pdfData(pdf!.id) ?? [])).toEqual(
+      Array.from(bytes),
+    )
+    expect(result.current.localFolder.pdfCount).toBe(1)
+    expect(result.current.localFolder.message).toContain(
+      '1 PDF está disponível',
+    )
+
+    disk.delete('reference.pdf')
+    await act(() => result.current.localFolder.check())
+
+    expect(result.current.documents.some((item) => item.id === pdf?.id)).toBe(
+      false,
+    )
+    expect(result.current.localFolder.pdfCount).toBe(0)
+  })
   it('saves a temporary note as a new file and clears its draft status', async () => {
     const { result, disk } = setup()
     await act(() => result.current.localFolder.connect())
