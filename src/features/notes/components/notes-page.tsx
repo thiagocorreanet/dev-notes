@@ -26,6 +26,7 @@ import {
   Code2,
   Download,
   Save,
+  FileType2,
   FileText,
   Moon,
   Pencil,
@@ -90,6 +91,8 @@ import { ResizableWorkspace } from './resizable-workspace'
 import { TextHighlighter } from './text-highlighter'
 import { ProtectionDialog } from './protection-dialog'
 import { serializeProtectedMarkdown } from '../document-protection'
+import { pdfFilename } from '../pdf-files'
+import { PdfViewer } from './pdf-viewer'
 
 function downloadNote(note: Note) {
   downloadFile(
@@ -98,6 +101,17 @@ function downloadNote(note: Note) {
       ? serializeProtectedMarkdown(note)
       : `# ${note.title}\n\n${note.content}\n`,
     'text/markdown;charset=utf-8',
+  )
+}
+
+function downloadPdf(note: Note, data: Uint8Array) {
+  const sourceName = note.sourcePath?.split(/[\\/]/).at(-1)
+  downloadFile(
+    sourceName && /\.pdf$/i.test(sourceName)
+      ? sourceName
+      : pdfFilename(note.title),
+    data.slice().buffer,
+    'application/pdf',
   )
 }
 
@@ -209,6 +223,8 @@ export function NotesPage() {
     mode,
     setMode,
   } = workspace
+  const isPdf = activeNote.mediaType === 'pdf'
+  const activePdf = isPdf ? workspace.pdfData(activeNote.id) : undefined
   const [itemRequest, setItemRequest] = useState<ItemActionRequest | null>(null)
   const [showTrash, setShowTrash] = useState(false)
   const [managementError, setManagementError] = useState('')
@@ -391,6 +407,15 @@ export function NotesPage() {
     ...command,
     disabled:
       workspace.busy ||
+      (isPdf &&
+        [
+          'pdf',
+          'presentation',
+          'find',
+          'save-page',
+          'save-as',
+          'minimap',
+        ].includes(command.id)) ||
       (workspace.isNoteLocked(activeNote.id) &&
         ['pdf', 'presentation', 'find', 'minimap'].includes(command.id)),
     onSelect: () => commandActions[command.id](),
@@ -407,6 +432,7 @@ export function NotesPage() {
       ) {
         event.preventDefault()
         if (
+          !isPdf &&
           !workspace.busy &&
           !event.repeat &&
           !(
@@ -419,7 +445,7 @@ export function NotesPage() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [workspace])
+  }, [isPdf, workspace])
 
   useEffect(() => {
     const wasDark = document.documentElement.classList.contains('dark')
@@ -502,7 +528,9 @@ export function NotesPage() {
                   query={query}
                   busy={workspace.busy}
                   canRefresh={!!activeNote.sourcePath}
-                  localFile={workspace.localDocuments.has(activeNote.id)}
+                  localFile={
+                    workspace.localDocuments.has(activeNote.id) && !isPdf
+                  }
                   onQueryChange={setQuery}
                   onSelectRoot={() => workspace.setSelectedFolder(undefined)}
                   onToggleFolder={workspace.toggleFolder}
@@ -637,24 +665,30 @@ export function NotesPage() {
                         ? 'Salvando…'
                         : error
                           ? 'Não salvo'
-                          : workspace.pageSaveState === 'saved'
-                            ? 'Salvo agora'
-                            : workspace.localDocuments.has(activeNote.id)
-                              ? workspace.localDocuments.isDirty(activeNote.id)
-                                ? 'Alterações pendentes'
-                                : 'Salvo no arquivo original'
-                              : isDraft
-                                ? 'Não salvo'
-                                : isSaved
-                                  ? 'Salvo neste navegador'
-                                  : 'Documento de exemplo'}
+                          : isPdf
+                            ? 'PDF somente leitura'
+                            : workspace.pageSaveState === 'saved'
+                              ? 'Salvo agora'
+                              : workspace.localDocuments.has(activeNote.id)
+                                ? workspace.localDocuments.isDirty(
+                                    activeNote.id,
+                                  )
+                                  ? 'Alterações pendentes'
+                                  : 'Salvo no arquivo original'
+                                : isDraft
+                                  ? 'Não salvo'
+                                  : isSaved
+                                    ? 'Salvo neste navegador'
+                                    : 'Documento de exemplo'}
                   </span>
-                  <DocumentSearch
-                    key={activeNote.id}
-                    content={`${activeNote.title}\n${activeNote.content}`}
-                    view={mode}
-                    ref={documentSearchRef}
-                  />
+                  {!isPdf && (
+                    <DocumentSearch
+                      key={activeNote.id}
+                      content={`${activeNote.title}\n${activeNote.content}`}
+                      view={mode}
+                      ref={documentSearchRef}
+                    />
+                  )}
                   <WorkspaceSearch
                     notes={workspace.documents}
                     folders={workspace.folders}
@@ -681,7 +715,8 @@ export function NotesPage() {
                     </TooltipTrigger>
                     <TooltipContent>Trocar tema</TooltipContent>
                   </Tooltip>
-                  {workspace.localDocuments.has(activeNote.id) &&
+                  {!isPdf &&
+                    workspace.localDocuments.has(activeNote.id) &&
                     !protectedLocalReadOnly && (
                       <Button
                         disabled={workspace.busy}
@@ -713,8 +748,13 @@ export function NotesPage() {
                       </Button>
                     )}
                   <Button
-                    onClick={() => downloadNote(activeNote)}
-                    aria-label="Baixar Markdown"
+                    disabled={isPdf && !activePdf}
+                    onClick={() =>
+                      isPdf && activePdf
+                        ? downloadPdf(activeNote, activePdf)
+                        : downloadNote(activeNote)
+                    }
+                    aria-label={isPdf ? 'Baixar PDF' : 'Baixar Markdown'}
                   >
                     <Download aria-hidden="true" />
                     <span className="hidden sm:inline">Baixar</span>
@@ -745,7 +785,7 @@ export function NotesPage() {
                     onClose={workspace.closeTab}
                   />
                 </div>
-                {!workspace.localDocuments.loading && (
+                {!workspace.localDocuments.loading && !isPdf && (
                   <SaveDestination
                     note={activeNote}
                     original={workspace.localDocuments.has(activeNote.id)}
@@ -802,6 +842,24 @@ export function NotesPage() {
                         })
                       }
                     />
+                  ) : isPdf ? (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
+                        <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                          <FileType2 className="size-4" aria-hidden="true" />
+                          <span className="max-w-64 truncate">
+                            {activeNote.sourcePath?.split(/[\\/]/).at(-1) ??
+                              `${activeNote.title}.pdf`}
+                          </span>
+                        </div>
+                        <Badge variant="secondary">PDF · Somente leitura</Badge>
+                      </div>
+                      <PdfViewer
+                        key={activeNote.id}
+                        data={activePdf}
+                        title={activeNote.title || 'Documento PDF'}
+                      />
+                    </div>
                   ) : (
                     <Tabs
                       value={mode}
@@ -1020,17 +1078,23 @@ export function NotesPage() {
                       ? 'Recupere ou descarte o rascunho para continuar.'
                       : workspace.busy
                         ? 'Aguarde…'
-                        : workspace.message || 'Markdown'}
+                        : workspace.message || (isPdf ? 'PDF' : 'Markdown')}
                   </span>
                   <span className="shrink-0">
-                    {wordCount} {wordCount === 1 ? 'palavra' : 'palavras'}
-                    <span className="hidden sm:inline">
-                      {' '}
-                      · {activeNote.content.length}{' '}
-                      {activeNote.content.length === 1
-                        ? 'caractere'
-                        : 'caracteres'}
-                    </span>
+                    {isPdf ? (
+                      'Somente leitura'
+                    ) : (
+                      <>
+                        {wordCount} {wordCount === 1 ? 'palavra' : 'palavras'}
+                        <span className="hidden sm:inline">
+                          {' '}
+                          · {activeNote.content.length}{' '}
+                          {activeNote.content.length === 1
+                            ? 'caractere'
+                            : 'caracteres'}
+                        </span>
+                      </>
+                    )}
                   </span>
                 </footer>
               </SidebarInset>
@@ -1040,8 +1104,11 @@ export function NotesPage() {
                 status={codex.status}
                 accountLoading={codex.loading}
                 note={activeNote}
-                canUseDocument={!workspace.isNoteLocked(activeNote.id)}
+                canUseDocument={
+                  !isPdf && !workspace.isNoteLocked(activeNote.id)
+                }
                 canApplyDocument={
+                  !isPdf &&
                   !workspace.busy &&
                   !workspace.isNoteLocked(activeNote.id) &&
                   !protectedLocalReadOnly
@@ -1065,12 +1132,12 @@ export function NotesPage() {
               ref={fileInputRef}
               className="hidden"
               type="file"
-              accept=".md,.markdown"
-              aria-label="Selecionar arquivo Markdown"
+              accept=".md,.markdown,.pdf,application/pdf"
+              aria-label="Selecionar documento Markdown ou PDF"
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0]
                 event.currentTarget.value = ''
-                void workspace.openMarkdownFile(file)
+                void workspace.openDocumentFile(file)
               }}
             />
             <Input
@@ -1090,7 +1157,7 @@ export function NotesPage() {
               ref={refreshInputRef}
               className="hidden"
               type="file"
-              accept=".md,.markdown"
+              accept={isPdf ? '.pdf,application/pdf' : '.md,.markdown'}
               aria-label="Selecionar arquivo original"
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0]

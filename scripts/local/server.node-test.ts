@@ -8,6 +8,7 @@ import {
   rm,
   stat,
   symlink,
+  truncate,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -27,8 +28,12 @@ async function fixture(t: TestContext, codex?: CodexService) {
   const dist = join(directory, 'dist')
   await mkdir(dist)
   await writeFile(join(dist, 'index.html'), '<html>DevNotes</html>')
+  await writeFile(join(dist, 'pdf.worker.mjs'), 'export default true')
   const path = join(directory, 'a space & ação #1.md')
   await writeFile(path, '# Guide\r\n\r\nOriginal\r\n', { mode: 0o640 })
+  const pdfPath = join(directory, 'architecture ação.pdf')
+  const pdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF')
+  await writeFile(pdfPath, pdfBytes)
   const service = await startLocalServer({
     dist,
     ...(codex ? { codex } : {}),
@@ -42,6 +47,8 @@ async function fixture(t: TestContext, codex?: CodexService) {
   })
   const endpoint = (file = path) =>
     `${service.origin}/api/document?${new URLSearchParams({ file }).toString()}`
+  const pdfEndpoint = (file = pdfPath) =>
+    `${service.origin}/api/pdf?${new URLSearchParams({ file }).toString()}`
   const launch = async (file = path) => {
     const response = await fetch(`${service.origin}/api/launch`, {
       method: 'POST',
@@ -68,7 +75,17 @@ async function fixture(t: TestContext, codex?: CodexService) {
       },
       body: JSON.stringify({ version, raw }),
     })
-  return { ...service, directory, path, endpoint, launch, save }
+  return {
+    ...service,
+    directory,
+    path,
+    pdfPath,
+    pdfBytes,
+    endpoint,
+    pdfEndpoint,
+    launch,
+    save,
+  }
 }
 
 void test('keeps Codex access local, session-bound, and explicit about document context', async (t) => {
@@ -199,6 +216,11 @@ void test('launches with the requested URL, reads and saves the original, and pr
   assert.equal(url.searchParams.get('file'), f.path)
   assert.equal([...url.searchParams].length, 2)
   assert.match(await (await fetch(location)).text(), /DevNotes/)
+  assert.match(
+    (await fetch(`${f.origin}/pdf.worker.mjs`)).headers.get('content-type') ??
+      '',
+    /^text\/javascript/,
+  )
   const document = (await (
     await fetch(f.endpoint(), { headers: { Cookie: cookie } })
   ).json()) as DocumentResponse
@@ -212,6 +234,53 @@ void test('launches with the requested URL, reads and saves the original, and pr
   assert.equal((await f.save(cookie, document.version, changed)).status, 200)
   assert.equal(await readFile(f.path, 'utf8'), changed)
   assert.equal((await stat(f.path)).mode & 0o777, 0o640)
+})
+
+void test('authorizes and serves PDFs as read-only binary documents', async (t) => {
+  const f = await fixture(t)
+  const { cookie, location } = await f.launch(f.pdfPath)
+  assert.equal(new URL(location).searchParams.get('file'), f.pdfPath)
+  const response = await fetch(f.pdfEndpoint(), {
+    headers: { Cookie: cookie },
+  })
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'application/pdf')
+  assert.equal(
+    decodeURIComponent(response.headers.get('x-devnotes-file-name')!),
+    'architecture ação.pdf',
+  )
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), f.pdfBytes)
+  assert.equal(
+    (
+      await fetch(f.pdfEndpoint(), {
+        method: 'PUT',
+        headers: { Cookie: cookie, Origin: f.origin },
+      })
+    ).status,
+    404,
+  )
+})
+
+void test('rejects invalid and oversized PDFs before creating a launch ticket', async (t) => {
+  const f = await fixture(t)
+  const invalid = join(f.directory, 'invalid.pdf')
+  await writeFile(invalid, 'not a pdf')
+  const oversized = join(f.directory, 'oversized.pdf')
+  await writeFile(oversized, '%PDF-1.7')
+  await truncate(oversized, 50 * 1024 * 1024 + 1)
+  const launchStatus = async (file: string) =>
+    (
+      await fetch(`${f.origin}/api/launch`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${f.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ file }),
+      })
+    ).status
+  assert.equal(await launchStatus(invalid), 415)
+  assert.equal(await launchStatus(oversized), 413)
 })
 
 void test('blocks unauthenticated, cross-origin, unknown-path, and reused-ticket access', async (t) => {

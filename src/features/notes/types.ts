@@ -31,6 +31,7 @@ export interface Note {
   id: string
   title: string
   content: string
+  mediaType?: 'markdown' | 'pdf'
   folderId?: string
   sourcePath?: string
   revisions?: NoteRevision[]

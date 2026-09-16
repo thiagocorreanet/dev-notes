@@ -41,14 +41,23 @@ void test(
       })
     await writeFile(
       join(apps, 'previous.desktop'),
-      '[Desktop Entry]\nType=Application\nName=Previous editor\nExec=/bin/true %F\nMimeType=text/markdown;text/x-markdown;\n',
+      '[Desktop Entry]\nType=Application\nName=Previous editor\nExec=/bin/true %F\nMimeType=text/markdown;text/x-markdown;application/pdf;\n',
     )
     mime('default', 'previous.desktop', 'text/markdown')
     mime('default', 'previous.desktop', 'text/x-markdown')
+    mime('default', 'previous.desktop', 'application/pdf')
     install('--default')
     assert.equal(
       mime('query', 'default', 'text/markdown'),
       'devnotes-local.desktop',
+    )
+    assert.equal(
+      mime('query', 'default', 'application/pdf'),
+      'previous.desktop',
+    )
+    assert.match(
+      await readFile(join(apps, 'devnotes-local.desktop'), 'utf8'),
+      /MimeType=text\/markdown;text\/x-markdown;application\/pdf;/,
     )
     install('--default')
     const previous = JSON.parse(

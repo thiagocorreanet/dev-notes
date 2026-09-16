@@ -238,7 +238,7 @@ async function main() {
         typeof result.url !== 'string'
       )
         throw new Error(
-          `Could not open ${file ?? 'DevNotes'}: ${response.status}. Check that it is an existing UTF-8 Markdown file of at most 2 MB.`,
+          `Could not open ${file ?? 'DevNotes'}: ${response.status}. Check that it is an existing UTF-8 Markdown file of at most 2 MB or a valid PDF of at most 50 MB.`,
         )
       if (flags.includes('--no-browser')) console.log(result.url)
       else await openBrowser(result.url)

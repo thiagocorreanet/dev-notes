@@ -16,9 +16,9 @@ npm run dev
 
 Open the address printed by Vite, usually `http://localhost:5173`.
 
-## Open Markdown files from the computer
+## Open documents from the computer
 
-DevNotes can open in the **default web browser** when a Markdown file is activated in the Linux file manager. The React/TypeScript/shadcn interface is reused; no Tauri, Electron, desktop window, or development server is involved. A Node.js 24 process serves the production build and accesses explicitly opened files on the same computer.
+DevNotes can open in the **default web browser** when a Markdown or PDF file is activated in the Linux file manager. The React/TypeScript/shadcn interface is reused; no Tauri, Electron, desktop window, or development server is involved. A Node.js 24 process serves the production build and accesses explicitly opened files on the same computer.
 
 ```bash
 # Build and register DevNotes as the default Markdown application for this Linux user.
@@ -29,7 +29,7 @@ npm run build
 npm run local:open -- "/absolute/path/to/document.md"
 ```
 
-The installer registers `.md` and `.markdown` MIME handlers through a per-user desktop entry. Without `--default`, DevNotes appears in **Open With** without replacing the current default. The installed launcher references this checkout and the current Node executable: keep both in place and reinstall after moving them. This is a local checkout installation, not a standalone distributable installer. File association installation currently supports Linux; other systems can use the CLI but do not yet have association installers.
+The installer registers `.md`, `.markdown`, and `.pdf` MIME handlers through a per-user desktop entry. DevNotes appears in **Open With** for every supported format. The `--default` option changes only the Markdown defaults; the installer never replaces the default PDF viewer. The installed launcher references this checkout and the current Node executable: keep both in place and reinstall after moving them. This is a local checkout installation, not a standalone distributable installer. File association installation currently supports Linux; other systems can use the CLI but do not yet have association installers.
 
 Opening a file starts the local service if necessary, then opens a browser page at:
 
@@ -39,10 +39,11 @@ http://127.0.0.1:45164/?ws=1&file=/absolute/path/to/document.md
 
 The path is URL-encoded by the launcher, including spaces, accents, `&`, and `#`. `ws=1` selects the local opening flow; it does not import the entire containing folder. Each file activation opens a browser page and reuses the same background service. The service stays running until stopped or the computer restarts. The next activation starts it again automatically. Only `127.0.0.1` is bound; no network interface is exposed.
 
-- **Save original file** and **Ctrl/Cmd+S** write the launched document back to its original path. Edits are written to the original only when explicitly saved; recovery snapshots stay in browser storage, and the browser warns before leaving with unsaved edits. Reloading reads the file from disk and offers any recoverable draft. Download and Save as retain their existing copy-download behavior.
+- For Markdown, **Save original file** and **Ctrl/Cmd+S** write the launched document back to its original path. Edits are written to the original only when explicitly saved; recovery snapshots stay in browser storage, and the browser warns before leaving with unsaved edits. Reloading reads the file from disk and offers any recoverable draft. Download and Save as retain their existing copy-download behavior.
+- PDFs are read-only. Page navigation, zoom, refresh, and download remain available, while editing, saving, history, protection, presentation, and attaching the current document to Codex are disabled.
 - The title/content split preserves the original Markdown prefix and line endings when the title is unchanged. Saving an unchanged document preserves its exact UTF-8 content, including files without a leading heading. Changing the title updates the document heading, not the filename.
 - Saves check the disk version and refuse competing external edits. The editor retains the unsaved version and explains how to download it or reload the original with the existing Refresh file action. Writes use a temporary file in the destination directory, synchronize it, preserve permission bits, recheck the disk version, and rename it into place. Write permission on the containing directory is required. Metadata such as extended attributes and hard-link identity is not preserved. There is no cross-process compare-and-swap guarantee against another program writing at the final rename boundary.
-- Files must be regular UTF-8 Markdown files of at most 2 MB. Authorization is limited to files opened through the launcher. Entering an arbitrary filesystem path in a URL does not authorize it. A one-use launch ticket establishes an HttpOnly, SameSite session cookie and redirects to the `ws`/`file` URL. The service validates Host/Origin and rejects cross-site requests. Launcher credentials are stored in the user's private state directory, outside the web build.
+- Files must be regular files. UTF-8 Markdown is limited to 2 MB; a PDF is limited to 50 MB and must contain a PDF signature near the start of the file. Authorization is limited to files opened through the launcher. Entering an arbitrary filesystem path in a URL does not authorize it. A one-use launch ticket establishes an HttpOnly, SameSite session cookie and redirects to the `ws`/`file` URL. The service validates Host/Origin and rejects cross-site requests. Launcher credentials are stored in the user's private state directory, outside the web build.
 - Ordinary browser workspace notes and connected-folder workflows keep their existing behavior. Workspace rename, move, trash, and export actions do not manipulate the launched file on disk. Relative images and links retain the existing browser renderer behavior; the service does not expose the containing directory as a file server.
 
 The default port is **45164**, deliberately separate from other local editors. Use `npm run local:open -- --port=45165 "/path/document.md"` to select another port when starting a service. An already-running service keeps its port. Changing ports changes the browser storage origin, so use a stable port to retain the same browser workspace. The port does not affect Markdown content stored on disk.
@@ -70,7 +71,7 @@ Use **Focus mode** in the header or **Toggle focus mode** in the command palette
 
 **Appearance preferences** is available in the header and command palette. Choose 14, 16, 18, or 20 px document text, comfortable/wide/full document width, a light/dark theme, and whether to animate the interface. Settings apply immediately, persist per browser origin, and synchronize between open tabs. Inter remains the document/UI font and JetBrains Mono remains the source-code font. Split view uses the available width for its two columns. Focus mode constrains otherwise full-width documents for reading. The system's reduced-motion preference always takes precedence over the animation switch. Preference storage failures are reported in the settings dialog.
 
-Drop one or more `.md` or `.markdown` files anywhere over the app to open them as browser workspace copies. A shadcn Card identifies the drop target, and the browser's normal file-navigation behavior is prevented. The whole batch is validated before import: at most 100 files, 2 MB each, and 20 MB total. Unsupported files reject the batch without replacing the open document. Dropped files do not grant the local service access to their original paths and are never written back implicitly. Use the existing computer file association to edit an original, or use Download/Save as for a dropped copy. The existing file picker remains available for keyboard and touch users.
+Drop `.md`, `.markdown`, or `.pdf` files anywhere over the app. Markdown opens as browser workspace copies; PDFs open read-only for the current page session and are not written to browser storage. A shadcn Card identifies the drop target, and the browser's normal file-navigation behavior is prevented. The whole batch is validated before import: at most 100 files, 2 MB per Markdown file, 20 MB of Markdown total, 50 MB per PDF, and 100 MB of PDFs total. Unsupported or invalid files reject the batch without replacing the open document. Dropped files do not grant the local service access to their original paths and are never written back implicitly. Use the existing computer file association to edit a Markdown original, or use Download/Save as for a copy. The file picker remains available for keyboard and touch users.
 
 Unsaved documents opened through the local launcher keep recovery snapshots in browser storage. On reopening, DevNotes offers **Recover draft** or **Discard this draft** before editing continues. Recovery never writes to disk automatically. Each editing session has its own snapshot key so concurrent tabs do not overwrite one another's recovery records. Restoring a snapshot retains its original disk version, so external changes still produce a save conflict. Saving successfully clears that session's recovery record. If the original is missing or the service is unavailable, a stored snapshot can still be recovered for downloading; original-file saves still require file access. Storage failures warn the user to save or download before leaving. Clearing browser data removes recovery records. Temporary new documents retain their existing explicit-save behavior.
 
@@ -89,15 +90,15 @@ The sidebar toolbar provides document and folder actions using official shadcn/u
 | New document       | Open a blank temporary document in Edit mode. Use Save page to keep it in the browser.                    |
 | New workspace page | Create a named page in the selected folder and save it in this browser.                                   |
 | New folder         | Enter a name, then choose a computer location or keep the folder only in the browser.                     |
-| Refresh file       | Reload an imported Markdown file from its source. Confirm before replacing local edits.                   |
+| Refresh file       | Reload an imported Markdown or PDF file from its source. Confirm before replacing local Markdown edits.   |
 | Collapse all       | Close every folder, including nested folders, and clear the search so the collapsed tree remains visible. |
-| Open folder        | Import a local folder's hierarchy and `.md` / `.markdown` files as workspace copies.                      |
+| Open folder        | Import a local folder's hierarchy and supported Markdown and PDF files.                                   |
 
-Use **Open Markdown file** in the sidebar footer or command palette to open a `.md` or `.markdown` document. This file picker opens Markdown files. Opening a file, a dropped batch, an imported folder, or a connected folder replaces the current document tabs with the requested selection. Existing browser workspace documents remain saved and available in the sidebar. A document opened through the Linux launcher also ignores restored workspace tabs for that browser page.
+Use **Open document** in the sidebar footer or command palette to open a `.md`, `.markdown`, or `.pdf` document. Opening a file, a dropped batch, an imported folder, or a connected folder replaces the current document tabs with the requested selection. Existing browser workspace documents remain saved and available in the sidebar. A document opened through the Linux launcher also ignores restored workspace tabs for that browser page.
 
 The sidebar shows standalone documents and explicitly opened folders at the top level, without a synthetic Documents folder. When nothing is open, it offers direct actions for choosing a Markdown file or folder. Nested folders use indentation and guide lines. Folders appear before documents, sorted by name within each level. Expand or collapse a folder with a click, Enter, or Space. The folder-plus action beside a folder selects it and opens the form to create a subfolder; empty folders remain visible. Select the workspace heading to create top-level items.
 
-Sidebar search matches page titles, content, and folder paths, revealing matching descendants inside collapsed folders. Matching folder names also reveal their contents, including empty subfolders. Clearing the query restores the previous expansion state. Read and Edit use the full available width beside the sidebar. **Edit** provides a visual document editor, **Markdown** edits the source, and **Split** displays the source alongside its preview (stacked on smaller screens). Use Download for an individual `.md` document.
+Sidebar search matches page titles, Markdown content, and folder paths, revealing matching descendants inside collapsed folders. Matching folder names also reveal their contents, including empty subfolders. Clearing the query restores the previous expansion state. Read and Edit use the full available width beside the sidebar. **Edit** provides a visual document editor, **Markdown** edits the source, and **Split** displays the source alongside its preview (stacked on smaller screens). A PDF instead uses its own read-only page and zoom toolbar. Use Download for an individual Markdown or PDF document.
 
 To highlight a passage without changing its Markdown, select text in Read or visual Edit mode and open **Marca-texto** beside document history. Choose yellow, green, blue, or pink. Select a highlighted passage again to remove its mark, or clear every highlight from the same popover. DevNotes stores these visual annotations separately in browser storage; they remain after reloading in the same browser but do not travel with a downloaded or original `.md` file.
 
@@ -133,8 +134,8 @@ The palette also includes focus mode and appearance preferences. The table uses 
 | Find in document      | Focus the existing document search; Ctrl/Cmd+F also opens it.                                                                                                                |
 | New document          | Start a temporary document in Edit mode.                                                                                                                                     |
 | New workspace folder  | Create a folder beneath the selected location.                                                                                                                               |
-| Open folder/workspace | Import a folder containing Markdown documents as workspace copies.                                                                                                           |
-| Open Markdown file    | Open a local `.md` or `.markdown` file without changing the original.                                                                                                        |
+| Open folder/workspace | Import a folder containing Markdown documents and read-only PDFs.                                                                                                            |
+| Open document         | Open a local `.md`, `.markdown`, or `.pdf` file without changing the original.                                                                                               |
 | Save page             | Persist only the active page, including a temporary draft. For a document opened through the local launcher, save to the original file. Ctrl/Cmd+S performs the same action. |
 | Save as               | Download a Markdown copy with a chosen filename. The browser controls the destination according to its download preferences.                                                 |
 | Codex account         | View the ChatGPT account and plan used by the local Codex CLI, start the official ChatGPT sign-in, and inspect the current included usage window.                            |
@@ -193,9 +194,9 @@ All new controls use the official shadcn/ui components and Brazilian Portuguese 
 
 The **Open folder** import action uses read-only access. Folder access uses the browser's directory picker with read-only permission when available. Other browsers use a directory file input. Imported files are workspace copies: editing them or creating browser-only folders never modifies the originals on disk.
 
-The native directory picker retains file handles during the session, allowing Refresh file to reread the current file. After reloading the application, or when using the fallback picker, Refresh file asks you to select the original file again. The selected filename must match the imported source. Folder pickers keep the readable directory structure, including empty folders, and import only Markdown documents. Other file types remain hidden and are not read as notes. File extensions are checked case-insensitively on open and refresh, even when a picker filter is bypassed. Canceling a picker keeps the current workspace unchanged. Browsers using the fallback file input cannot report completely empty directories because that API exposes files only.
+The native directory picker retains file handles during the session, allowing Refresh file to reread the current file. After reloading the application, or when using the fallback picker, Refresh file asks you to select the original file again. The selected filename must match the imported source. Folder pickers keep the readable directory structure, including empty folders, and import Markdown documents plus read-only PDFs. Other file types remain hidden and are not read as notes. File extensions are checked case-insensitively on open and refresh, even when a picker filter is bypassed. Canceling a picker keeps the current workspace unchanged. Browsers using the fallback file input cannot report completely empty directories because that API exposes files only.
 
-Imports skip `.git` and `node_modules`, support files up to 2 MB, and allow up to 20 MB of Markdown per import. Folder scanning is limited to 10,000 entries. Failed imports leave existing workspace data intact.
+Imports skip `.git` and `node_modules`, support Markdown files up to 2 MB and PDFs up to 50 MB, and allow up to 20 MB of Markdown plus 100 MB of PDFs per import. Folder scanning is limited to 10,000 entries. PDFs remain only in the current page session; reload or reopen them after a page refresh. Failed imports leave existing workspace data intact.
 
 ### Task dashboard
 
@@ -220,31 +221,31 @@ The connected-folder banner reports pending files relative to the latest manual 
 
 ### Persistence
 
-Workspace pages and folders save automatically in `localStorage` in the current browser and origin. Existing notes from the previous storage format are read without deleting the original data; subsequent changes use the workspace format. Temporary documents are intentionally unsaved until Save page. The app requests the browser's normal leave-page confirmation when a temporary document contains text.
+Workspace Markdown pages and folders save automatically in `localStorage` in the current browser and origin. Existing notes from the previous storage format are read without deleting the original data; subsequent changes use the workspace format. Temporary documents are intentionally unsaved until Save page. Imported PDF bytes are never stored there and last only for the current page session. The app requests the browser's normal leave-page confirmation when a temporary document contains text.
 
 The ordinary web deployment has no backend, account authentication, or cloud sync. The optional local launcher adds a loopback file service with local session authorization. Clearing browser data removes the local workspace. Storage failures display an alert and keep session data available for export. If stored data is unreadable, saving replaces it as explained in the recovery alert. Download Markdown copies of documents you need to retain independently of the browser and reopen later.
 
 ## Commands
 
-| Command                              | Purpose                                                               |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| `npm run dev`                        | Start the development server                                          |
-| `npm run build`                      | Check TypeScript and build into `dist/`                               |
-| `npm run preview`                    | Preview the production build locally                                  |
-| `npm run typecheck`                  | Check TypeScript                                                      |
-| `npm run lint`                       | Check ESLint rules                                                    |
-| `npm run lint:fix`                   | Apply automatic lint fixes                                            |
-| `npm run format`                     | Format project files                                                  |
-| `npm run format:check`               | Check formatting                                                      |
-| `npm test`                           | Run tests in watch mode                                               |
-| `npm run test:run`                   | Run tests once                                                        |
-| `npm run test:coverage`              | Generate a coverage report                                            |
-| `npm run local:open -- <file.md>`    | Open a Markdown file in the default browser through the local service |
-| `npm run local:install -- --default` | Build and register the default Markdown handler on Linux              |
-| `npm run local:stop`                 | Stop the background local service                                     |
-| `npm run local:uninstall`            | Remove the Linux file handler                                         |
-| `npm run test:local`                 | Test real local HTTP and filesystem operations                        |
-| `npm run check`                      | Check formatting, lint, tests, types, and production build            |
+| Command                              | Purpose                                                            |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| `npm run dev`                        | Start the development server                                       |
+| `npm run build`                      | Check TypeScript and build into `dist/`                            |
+| `npm run preview`                    | Preview the production build locally                               |
+| `npm run typecheck`                  | Check TypeScript                                                   |
+| `npm run lint`                       | Check ESLint rules                                                 |
+| `npm run lint:fix`                   | Apply automatic lint fixes                                         |
+| `npm run format`                     | Format project files                                               |
+| `npm run format:check`               | Check formatting                                                   |
+| `npm test`                           | Run tests in watch mode                                            |
+| `npm run test:run`                   | Run tests once                                                     |
+| `npm run test:coverage`              | Generate a coverage report                                         |
+| `npm run local:open -- <file>`       | Open a Markdown or PDF file through the local service              |
+| `npm run local:install -- --default` | Register supported formats and set only Markdown defaults on Linux |
+| `npm run local:stop`                 | Stop the background local service                                  |
+| `npm run local:uninstall`            | Remove the Linux file handler                                      |
+| `npm run test:local`                 | Test real local HTTP and filesystem operations                     |
+| `npm run check`                      | Check formatting, lint, tests, types, and production build         |
 
 ## Project structure
 
@@ -291,7 +292,7 @@ npx shadcn@latest add sidebar tabs dialog table tooltip checkbox collapsible ale
 
 Installed components include Button, Card, Input, Textarea, Label, Badge, Alert, Empty, Separator, Sidebar, Sheet, Skeleton, Tabs, Dialog, Table, Tooltip, Checkbox, Collapsible, Alert Dialog, Popover, Command, Kbd, Input Group, and Resizable. Command uses the official `cmdk` dependency; Resizable uses `react-resizable-panels`. The sidebar mobile hook uses `useSyncExternalStore` to subscribe to viewport changes while satisfying the React Hooks lint rules. ESLint allows registry exports used by Fast Refresh and prevents direct HTML controls in feature components.
 
-Markdown is parsed by `react-markdown` with `remark-gfm`; tables and task checkboxes are composed from shadcn/ui. Raw embedded HTML is skipped and the renderer's default URL filtering is retained.
+Markdown is parsed by `react-markdown` with `remark-gfm`; tables and task checkboxes are composed from shadcn/ui. Raw embedded HTML is skipped and the renderer's default URL filtering is retained. PDF.js renders PDF pages to canvas and extracts page text for an accessible reading region; surrounding controls use shadcn/ui.
 
 After changing dependencies or configuration, keep this README and `package-lock.json` current and run `npm run check`. GitHub Actions runs the same checks for pushes and pull requests.
 

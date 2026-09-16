@@ -4,7 +4,7 @@
 
 <h1 align="center">DevNotes</h1>
 
-<p align="center">A Markdown workspace for the notes you write while building software.</p>
+<p align="center">A Markdown workspace with built-in PDF reading for the documents you use while building software.</p>
 
 <p align="center">
   <a href="https://github.com/thiagocorreanet/dev-notes/actions/workflows/ci.yml"><img src="https://github.com/thiagocorreanet/dev-notes/actions/workflows/ci.yml/badge.svg" alt="Build and tests" /></a>
@@ -20,7 +20,7 @@
   <a href="https://github.com/thiagocorreanet/dev-notes/issues">Report a bug</a>
 </p>
 
-Keep debugging notes, code snippets, and architecture decisions in one place. DevNotes runs in your browser, with a folder tree, visual editing, and direct access to Markdown source. On Linux, you can register it as your Markdown application: double-click a `.md` file, edit it in a browser tab, and save it back to disk.
+Keep debugging notes, code snippets, architecture decisions, and reference PDFs in one place. DevNotes runs in your browser, with a folder tree, visual editing, direct access to Markdown source, and read-only PDF viewing. On Linux, you can register it as your Markdown application and add it to the PDF **Open With** menu.
 
 The interface is in Brazilian Portuguese. Documentation and code use English; your documents keep the language you write them in. The browser workspace requires no account and stores notes on your device. The optional Codex assistant uses the ChatGPT account connected to the local Codex CLI.
 
@@ -55,7 +55,11 @@ Protect a document or an entire folder from its item menu. DevNotes encrypts doc
 
 ### Open files from Linux
 
-Double-click a Markdown file to open DevNotes in your default browser. A small local Node.js service serves the application and reads only files authorized through the launcher. An explicit file or folder opening replaces the previous tab set, while the saved browser workspace remains available in the sidebar. Saving checks for external changes before writing to the original. Dropped files and ordinary browser imports open as copies.
+Double-click a Markdown file or open a PDF with DevNotes to use it in your default browser. A small local Node.js service serves the application and reads only files authorized through the launcher. Markdown files remain editable and saveable; PDFs use a read-only viewer with page and zoom controls. An explicit file or folder opening replaces the previous tab set, while the saved browser workspace remains available in the sidebar. Dropped files and ordinary browser imports open as copies for the current session.
+
+### Read PDFs beside your notes
+
+Open PDFs with the file picker, drag and drop, folder import, or Linux launcher. PDF.js renders the document locally with page navigation and zoom from 50% to 200%. PDFs are read-only, are not copied into browser storage, and do not expose Markdown editing, history, protection, presentation, or AI attachment actions. Each PDF may be up to 50 MB, with up to 100 MB of PDFs in one browser import.
 
 ### Find commands without leaving the document
 
@@ -98,9 +102,9 @@ After installing the dependencies, run:
 npm run local:install -- --default
 ```
 
-This builds the app and registers DevNotes as the default Markdown application for your Linux user. Omit `--default` to add it to the file manager's Open With menu without changing the default.
+This builds the app, registers DevNotes as the default Markdown application for your Linux user, and adds it to the PDF **Open With** menu. The installer deliberately leaves your default PDF viewer unchanged. Omit `--default` to avoid changing the Markdown default as well.
 
-Double-click a `.md` or `.markdown` file. The launcher starts a background service and opens a URL like this:
+Double-click a `.md` or `.markdown` file, or choose DevNotes for a `.pdf` file. The launcher starts a background service and opens a URL like this:
 
 ```text
 http://127.0.0.1:45164/?ws=1&file=/home/you/notes/debugging.md
@@ -122,16 +126,16 @@ npm run local:stop
 npm run local:uninstall
 ```
 
-Uninstalling keeps your documents and checkout. See the [local launcher guide](docs/guide.md#open-markdown-files-from-the-computer) for ports, file limits, and save behavior.
+Uninstalling keeps your documents and checkout. See the [local launcher guide](docs/guide.md#open-documents-from-the-computer) for ports, file limits, and save behavior.
 
 ## Where your work is saved
 
-| How you open a document                      | Where changes go                                                                                       |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Browser workspace                            | Saved pages and folders persist in this browser and origin. Temporary documents need an explicit save. |
-| File picker, folder import, or drag and drop | DevNotes edits a workspace copy. Download it to keep a separate Markdown file.                         |
-| Linux file association or local launcher     | Save and `Ctrl/Cmd+S` write to the original file. Unsaved edits have browser recovery snapshots.       |
-| Connected local folder                       | Explicit folder-save actions write to disk. Manual scans detect external changes and report conflicts. |
+| How you open a document                      | Where changes go                                                                                                |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Browser workspace                            | Saved Markdown pages and folders persist in this browser and origin. Temporary pages need an explicit save.     |
+| File picker, folder import, or drag and drop | Markdown opens as a workspace copy. PDFs remain read-only and available only for the current page session.      |
+| Linux file association or local launcher     | Markdown can save to the original file. PDFs are served from the authorized original path and remain read-only. |
+| Connected local folder                       | Explicit Markdown folder-save actions write to disk. Manual scans detect external changes and report conflicts. |
 
 Clearing browser data removes the browser workspace, preferences, and recovery snapshots. Download important notes separately. Connected-folder access requires a browser with the directory picker API; other browsers can still import files and download Markdown copies.
 
@@ -154,7 +158,7 @@ The save-destination strip identifies original files, imported copies, connected
 
 ## Development
 
-DevNotes uses React, strict TypeScript, and Vite. Interface controls come from official shadcn/ui components with the Nova preset. Tiptap handles visual editing; react-markdown and remark-gfm render Markdown; Mermaid renders diagrams. The Linux launcher uses Node.js built-ins.
+DevNotes uses React, strict TypeScript, and Vite. Interface controls come from official shadcn/ui components with the Nova preset. Tiptap handles visual editing; react-markdown and remark-gfm render Markdown; Mermaid renders diagrams; PDF.js renders PDFs. The Linux launcher uses Node.js built-ins.
 
 ```bash
 npm run check          # Formatting, lint, tests, types, and production build

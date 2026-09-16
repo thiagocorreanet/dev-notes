@@ -179,7 +179,7 @@ describe('Sidebar folder hierarchy', () => {
     expect(screen.getByText('Nenhum arquivo ou pasta aberto')).toBeVisible()
     expect(
       screen.getByText(
-        'Abra um arquivo Markdown ou escolha uma pasta para começar.',
+        'Abra um documento Markdown ou PDF, ou escolha uma pasta para começar.',
       ),
     ).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Abrir arquivo' }))

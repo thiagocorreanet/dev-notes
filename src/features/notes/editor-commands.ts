@@ -93,16 +93,16 @@ export const editorCommandDefinitions = [
   {
     id: 'open-folder',
     label: 'Abrir pasta',
-    description: 'Abrir os documentos Markdown de uma pasta.',
+    description: 'Abrir os documentos Markdown e PDF de uma pasta.',
     keywords:
-      'abrir pasta workspace espaco trabalho diretorio importar markdown',
+      'abrir pasta workspace espaco trabalho diretorio importar markdown pdf',
     icon: FolderOpen,
   },
   {
     id: 'open-file',
-    label: 'Abrir arquivo Markdown',
-    description: 'Abrir uma cópia de um arquivo .md ou .markdown.',
-    keywords: 'pc disco importar carregar markdown',
+    label: 'Abrir documento',
+    description: 'Abrir um arquivo Markdown ou PDF.',
+    keywords: 'pc disco importar carregar markdown pdf',
     icon: FileUp,
   },
   {

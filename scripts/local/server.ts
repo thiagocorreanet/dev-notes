@@ -16,6 +16,7 @@ import { CodexAppServerService, CodexServiceError } from './codex-service.ts'
 import type { CodexDocumentContext, CodexService } from './codex-service.ts'
 
 const MAX_BYTES = 2 * 1024 * 1024
+const MAX_PDF_BYTES = 50 * 1024 * 1024
 const digest = (raw: string) => createHash('sha256').update(raw).digest('hex')
 const secret = () => randomBytes(32).toString('hex')
 
@@ -76,6 +77,24 @@ async function readDocument(path: string) {
   }
 }
 
+async function readPdf(path: string) {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) throw new HttpError(400, 'Expected a regular PDF file.')
+    if (info.size > MAX_PDF_BYTES)
+      throw new HttpError(413, 'PDF exceeds 50 MB.')
+    const bytes = await handle.readFile()
+    if (bytes.length > MAX_PDF_BYTES)
+      throw new HttpError(413, 'PDF exceeds 50 MB.')
+    if (!bytes.subarray(0, 1024).includes(Buffer.from('%PDF-')))
+      throw new HttpError(415, 'File is not a valid PDF.')
+    return { path, name: basename(path), bytes }
+  } finally {
+    await handle.close()
+  }
+}
+
 export async function startLocalServer(options: {
   dist: string
   port?: number
@@ -95,10 +114,13 @@ export async function startLocalServer(options: {
   const codexService = () => (codex ??= new CodexAppServerService())
 
   async function authorizePath(path: string) {
-    if (!/\.(md|markdown)$/i.test(path))
-      throw new HttpError(400, 'Expected a .md or .markdown file.')
+    const markdown = /\.(md|markdown)$/i.test(path)
+    const pdf = /\.pdf$/i.test(path)
+    if (!markdown && !pdf)
+      throw new HttpError(400, 'Expected a Markdown or PDF file.')
     const canonical = await realpath(resolve(path))
-    await readDocument(canonical)
+    if (pdf) await readPdf(canonical)
+    else await readDocument(canonical)
     allowed.add(canonical)
     return canonical
   }
@@ -254,10 +276,33 @@ export async function startLocalServer(options: {
         return
       }
 
+      if (url.pathname === '/api/pdf' && method === 'GET') {
+        const path = url.searchParams.get('file') ?? ''
+        if (
+          !/\.pdf$/i.test(path) ||
+          !allowed.has(path) ||
+          (await realpath(path)) !== path
+        )
+          throw new HttpError(
+            403,
+            'Open this PDF using the DevNotes launcher first.',
+          )
+        const pdf = await readPdf(path)
+        response.setHeader('Content-Type', 'application/pdf')
+        response.setHeader('X-DevNotes-File-Name', encodeURIComponent(pdf.name))
+        response.setHeader('Content-Length', String(pdf.bytes.length))
+        response.end(pdf.bytes)
+        return
+      }
+
       if (url.pathname !== '/api/document' || !['GET', 'PUT'].includes(method))
         throw new HttpError(404, 'Unknown endpoint.')
       const path = url.searchParams.get('file') ?? ''
-      if (!allowed.has(path) || (await realpath(path)) !== path)
+      if (
+        !/\.(md|markdown)$/i.test(path) ||
+        !allowed.has(path) ||
+        (await realpath(path)) !== path
+      )
         throw new HttpError(
           403,
           'Open this file using the DevNotes launcher first.',
@@ -331,6 +376,7 @@ export async function startLocalServer(options: {
     const types: Record<string, string> = {
       '.html': 'text/html; charset=utf-8',
       '.js': 'text/javascript; charset=utf-8',
+      '.mjs': 'text/javascript; charset=utf-8',
       '.css': 'text/css; charset=utf-8',
       '.svg': 'image/svg+xml',
       '.png': 'image/png',

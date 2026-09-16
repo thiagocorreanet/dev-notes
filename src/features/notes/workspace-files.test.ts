@@ -5,6 +5,7 @@ import {
   parseMarkdownFile,
   readMarkdownFile,
 } from './workspace-files'
+import { readPdfFile } from './pdf-files'
 import type { LocalDirectoryHandle, LocalFileHandle } from './workspace-files'
 
 function file(name: string, path: string, content: string) {
@@ -12,6 +13,16 @@ function file(name: string, path: string, content: string) {
   Object.defineProperties(result, {
     webkitRelativePath: { value: path },
     text: { value: () => Promise.resolve(content) },
+  })
+  return result
+}
+
+function pdfFile(name: string, path = '', content = '%PDF-1.7\n%%EOF') {
+  const bytes = new TextEncoder().encode(content)
+  const result = new File([bytes], name, { type: 'application/pdf' })
+  Object.defineProperties(result, {
+    webkitRelativePath: { value: path },
+    arrayBuffer: { value: () => Promise.resolve(bytes.buffer) },
   })
   return result
 }
@@ -88,6 +99,23 @@ describe('Folder imports', () => {
     expect(result.notes[0]?.folderId).toBe(result.folders[4]?.id)
   })
 
+  it('imports PDFs as read-only session documents', async () => {
+    const result = await importFileList([
+      pdfFile('architecture.pdf', 'Project/docs/architecture.pdf'),
+      file('readme.md', 'Project/readme.md', '# Readme'),
+    ])
+    expect(result.pdfs).toHaveLength(1)
+    expect(result.pdfs[0]?.note).toMatchObject({
+      title: 'architecture',
+      mediaType: 'pdf',
+      sourcePath: 'Project/docs/architecture.pdf',
+    })
+    expect(Array.from(result.pdfs[0]?.data.slice(0, 5) ?? [])).toEqual(
+      Array.from(new TextEncoder().encode('%PDF-')),
+    )
+    expect(result.notes).toHaveLength(1)
+  })
+
   it('accepts folders without Markdown documents', async () => {
     await expect(
       importDirectory({
@@ -141,5 +169,17 @@ describe('Folder imports', () => {
     const large = file('large.md', 'Folder/large.md', '')
     Object.defineProperty(large, 'size', { value: 3 * 1024 * 1024 })
     await expect(readMarkdownFile(large)).rejects.toThrow('2 MB')
+  })
+
+  it('validates PDF extension, size, and signature', async () => {
+    await expect(readPdfFile(pdfFile('guide.pdf'))).resolves.toMatchObject({
+      title: 'guide',
+    })
+    await expect(
+      readPdfFile(pdfFile('guide.pdf', '', 'not a pdf')),
+    ).rejects.toThrow('não é um PDF válido')
+    const large = pdfFile('large.pdf')
+    Object.defineProperty(large, 'size', { value: 51 * 1024 * 1024 })
+    await expect(readPdfFile(large)).rejects.toThrow('50 MB')
   })
 })

@@ -90,13 +90,13 @@ describe('Editor command palette', () => {
     expect(stored.notes.map((note) => note.title)).toContain('First draft')
   })
 
-  it('opens Markdown file and folder pickers', async () => {
+  it('opens document and folder pickers', async () => {
     const { user } = setup()
     const click = vi.spyOn(HTMLInputElement.prototype, 'click')
-    await command(user, 'arquivo pc', 'Abrir arquivo Markdown')
+    await command(user, 'arquivo pc', 'Abrir documento')
     expect(click.mock.instances.at(-1)).toHaveAttribute(
       'aria-label',
-      'Selecionar arquivo Markdown',
+      'Selecionar documento Markdown ou PDF',
     )
     const file = new File(['# Imported\n\nExternal content'], 'imported.md', {
       type: 'text/markdown',
@@ -105,7 +105,7 @@ describe('Editor command palette', () => {
       value: () => Promise.resolve('# Imported\n\nExternal content'),
     })
     await user.upload(
-      screen.getByLabelText('Selecionar arquivo Markdown'),
+      screen.getByLabelText('Selecionar documento Markdown ou PDF'),
       file,
     )
     expect(

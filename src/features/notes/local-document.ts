@@ -7,6 +7,12 @@ export interface LocalDocument {
   version: string
 }
 
+export interface LocalPdfDocument {
+  path: string
+  name: string
+  data: Uint8Array
+}
+
 export function requestedLocalFile() {
   const query = new URLSearchParams(window.location.search)
   return query.get('ws') === '1' ? query.get('file') : null
@@ -76,4 +82,47 @@ export async function requestLocalDocument(
       'O serviço local retornou uma resposta inválida. Abra o arquivo novamente pelo computador.',
     )
   return value as LocalDocument
+}
+
+export async function requestLocalPdf(
+  path: string,
+  signal: AbortSignal = AbortSignal.timeout(30_000),
+): Promise<LocalPdfDocument> {
+  let response: Response
+  try {
+    response = await fetch(`/api/pdf?${new URLSearchParams({ file: path })}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError')
+      throw error
+    throw new WorkspaceError(
+      'O serviço local não respondeu. Abra o PDF novamente pelo computador e tente de novo.',
+    )
+  }
+  if (!response.ok) {
+    const messages: Record<number, string> = {
+      401: 'Abra o PDF pelo DevNotes no computador para conectar esta página ao serviço local.',
+      403: 'Este PDF não está autorizado. Abra-o pelo DevNotes no computador.',
+      404: 'O PDF não foi encontrado. Verifique se ele foi movido ou excluído.',
+      413: 'O PDF ultrapassa o limite de 50 MB.',
+      415: 'O arquivo selecionado não é um PDF válido.',
+    }
+    throw new WorkspaceError(
+      messages[response.status] ??
+        'Não foi possível acessar o PDF no computador. Verifique a permissão de acesso.',
+    )
+  }
+  const name = response.headers.get('X-DevNotes-File-Name')
+  if (!name)
+    throw new WorkspaceError(
+      'O serviço local retornou uma resposta inválida. Abra o PDF novamente pelo computador.',
+    )
+  return {
+    path,
+    name: decodeURIComponent(name),
+    data: new Uint8Array(await response.arrayBuffer()),
+  }
 }

@@ -30,6 +30,42 @@ function setup() {
 }
 
 describe('Local document launch', () => {
+  it('opens and reloads a launched PDF without exposing edit or save state', async () => {
+    const pdfPath = '/home/user/Notes/architecture.pdf'
+    const bytes = new TextEncoder().encode('%PDF-1.7\n%%EOF')
+    history.replaceState(
+      null,
+      '',
+      `/?ws=1&${new URLSearchParams({ file: pdfPath })}`,
+    )
+    const response = () =>
+      new Response(bytes, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'X-DevNotes-File-Name': encodeURIComponent('architecture.pdf'),
+        },
+      })
+    const fetch = vi
+      .fn<typeof window.fetch>()
+      .mockImplementation(() => Promise.resolve(response()))
+    vi.stubGlobal('fetch', fetch)
+    const { result } = renderHook(() => useWorkspace())
+
+    await waitFor(() => expect(result.current.activeNote.mediaType).toBe('pdf'))
+    expect(result.current.activeNote.title).toBe('architecture')
+    expect(
+      Array.from(result.current.pdfData(result.current.activeNote.id) ?? []),
+    ).toEqual(Array.from(bytes))
+    expect(
+      result.current.localDocuments.isDirty(result.current.activeNote.id),
+    ).toBe(false)
+    await act(() => result.current.savePage())
+    expect(fetch).toHaveBeenCalledOnce()
+    await act(() => result.current.refreshFile(result.current.activeNote))
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(result.current.message).toContain('PDF recarregado')
+  })
+
   it('opens only the requested document instead of restoring workspace tabs', async () => {
     const previousTabs = JSON.stringify({
       ids: ['example-getting-started', 'example-markdown-reference'],

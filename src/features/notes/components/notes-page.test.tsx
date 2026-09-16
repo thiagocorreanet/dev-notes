@@ -153,7 +153,7 @@ describe('Notes workspace', () => {
     await addNote('User interface', 'Accessible controls')
     const user = userEvent.setup()
     await user.type(
-      screen.getByRole('searchbox', { name: 'Buscar notas' }),
+      screen.getByRole('searchbox', { name: 'Buscar documentos' }),
       'interface',
     )
     await user.keyboard('{Control>}k{/Control}')
@@ -165,9 +165,9 @@ describe('Notes workspace', () => {
     expect(
       screen.getByRole('heading', { name: 'Background processing' }),
     ).toBeVisible()
-    expect(screen.getByRole('searchbox', { name: 'Buscar notas' })).toHaveValue(
-      '',
-    )
+    expect(
+      screen.getByRole('searchbox', { name: 'Buscar documentos' }),
+    ).toHaveValue('')
     expect(screen.getByRole('tab', { name: 'Ler' })).toHaveAttribute(
       'aria-selected',
       'true',
@@ -284,7 +284,9 @@ describe('Notes workspace', () => {
     await addNote('React', 'Reusable components')
     await addNote('TypeScript', 'Safe types')
     const user = userEvent.setup()
-    const search = screen.getByRole('searchbox', { name: 'Buscar notas' })
+    const search = screen.getByRole('searchbox', {
+      name: 'Buscar documentos',
+    })
     await user.type(search, ' REACT ')
     expect(screen.getByRole('button', { name: 'React' })).toBeVisible()
     expect(
@@ -297,7 +299,9 @@ describe('Notes workspace', () => {
     await user.clear(search)
     await user.type(search, 'missing document')
     expect(
-      screen.getByText('Nenhuma nota ou pasta encontrada. Tente outra busca.'),
+      screen.getByText(
+        'Nenhum documento ou pasta encontrado. Tente outra busca.',
+      ),
     ).toBeVisible()
   })
 
@@ -563,13 +567,13 @@ describe('Workspace toolbar', () => {
     expect(screen.getAllByRole('tab', { name: /^Abrir aba / })).toHaveLength(1)
   })
 
-  it('rejects non-Markdown files even when the file picker filter is bypassed', async () => {
+  it('rejects unsupported files even when the file picker filter is bypassed', async () => {
     render(<NotesPage />)
     await addNote('Existing note', 'Keep the original content')
     const saved = localStorage.getItem(WORKSPACE_KEY)
     const user = userEvent.setup({ applyAccept: false })
     await user.upload(
-      screen.getByLabelText('Selecionar arquivo Markdown'),
+      screen.getByLabelText('Selecionar documento Markdown ou PDF'),
       markdownFile('notes.json', '{}'),
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(
