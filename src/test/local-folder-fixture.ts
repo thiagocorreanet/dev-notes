@@ -4,8 +4,10 @@ import type {
   LocalFileHandle,
 } from '../features/notes/workspace-files'
 
-export function localFolderFixture(initial: Record<string, string> = {}) {
-  const disk = new Map(Object.entries(initial))
+export function localFolderFixture(
+  initial: Record<string, string | Uint8Array> = {},
+) {
+  const disk = new Map<string, string | Uint8Array>(Object.entries(initial))
   const writes = vi.fn<(path: string, raw: string) => void>()
   const directories = new Set([''])
   for (const path of disk.keys()) {
@@ -21,9 +23,23 @@ export function localFolderFixture(initial: Record<string, string> = {}) {
       getFile: () => {
         const raw = disk.get(path)
         if (raw === undefined) return Promise.reject(missing())
-        const result = new File([raw], path.split('/').at(-1)!)
+        const bytes =
+          typeof raw === 'string' ? new TextEncoder().encode(raw) : raw
+        const result = new File(
+          [bytes.slice().buffer],
+          path.split('/').at(-1)!,
+          {
+            type: /\.pdf$/i.test(path) ? 'application/pdf' : 'text/markdown',
+          },
+        )
         Object.defineProperty(result, 'text', {
-          value: () => Promise.resolve(raw),
+          value: () =>
+            Promise.resolve(
+              typeof raw === 'string' ? raw : new TextDecoder().decode(raw),
+            ),
+        })
+        Object.defineProperty(result, 'arrayBuffer', {
+          value: () => Promise.resolve(bytes.slice().buffer),
         })
         return Promise.resolve(result)
       },

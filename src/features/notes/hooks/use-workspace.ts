@@ -950,6 +950,7 @@ export function useWorkspace() {
       ...documents.filter((note) => note.mediaType !== 'pdf'),
       ...store.notes.filter((note) => note.deletedAt),
     ],
+    pdfs: [...pdfFiles.values()],
     folders: store.folders,
     saveNote: (note, forceRevision) => {
       const saved = store.saveNote(note, forceRevision)
@@ -957,6 +958,14 @@ export function useWorkspace() {
       return saved
     },
     importFolder: store.importFolder,
+    syncPdfs: (nextPdfs, previousIds) => {
+      setPdfFiles((current) => {
+        const next = new Map(current)
+        for (const id of previousIds) next.delete(id)
+        for (const pdf of nextPdfs) next.set(pdf.note.id, pdf)
+        return next
+      })
+    },
     onConnect: (ids, folderId) => {
       if (ids[0]) {
         setEmptyFolderOpen(false)

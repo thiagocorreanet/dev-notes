@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Note, WorkspaceFolder } from '../types'
-import type { LocalDirectoryHandle } from '../workspace-files'
+import type { ImportedPdf, LocalDirectoryHandle } from '../workspace-files'
 import { parseMarkdownFile } from '../workspace-files'
 import { folderPath } from '../note-tasks'
 import { descendantFolderIds } from '../workspace-actions'
@@ -21,19 +21,24 @@ interface Connection {
   root: LocalDirectoryHandle
   folderId: string
   files: SyncedFile[]
+  pdfIds: string[]
 }
 
 export function useLocalFolder({
   notes,
+  pdfs,
   folders,
   saveNote,
   importFolder,
+  syncPdfs,
   onConnect,
 }: {
   notes: Note[]
+  pdfs: ImportedPdf[]
   folders: WorkspaceFolder[]
   saveNote: (note: Note, forceRevision?: boolean) => boolean
   importFolder: (notes: Note[], folders: WorkspaceFolder[]) => void
+  syncPdfs: (pdfs: ImportedPdf[], previousIds: string[]) => void
   onConnect: (noteIds: string[], folderId?: string) => void
 }) {
   const [connection, setConnection] = useState<Connection | null>(null)
@@ -110,9 +115,11 @@ export function useLocalFolder({
     root: LocalDirectoryHandle,
     disk: DiskFile[],
     previous: SyncedFile[],
+    previousPdfIds: string[],
     rootFolderId?: string,
   ) {
     const next: SyncedFile[] = []
+    const connectedPdfs: ImportedPdf[] = []
     const additions: Note[] = []
     const newFolders: WorkspaceFolder[] = []
     const updates: Note[] = []
@@ -154,6 +161,24 @@ export function useLocalFolder({
     const connectedFolderId = ensureFolder(root.name)
     for (const item of disk) {
       const sourcePath = `${root.name}/${item.path}`
+      if (item.type === 'pdf') {
+        const existing = pdfs.find((pdf) => pdf.note.sourcePath === sourcePath)
+        const note: Note = existing?.note ?? {
+          id: crypto.randomUUID(),
+          title: item.title,
+          content: '',
+          mediaType: 'pdf',
+          sourcePath,
+          folderId: ensureFolder(sourcePath.split('/').slice(0, -1).join('/')),
+        }
+        connectedPdfs.push({
+          note: { ...note, title: item.title, sourcePath },
+          data: item.data,
+          handle: item.handle,
+          fileName: item.fileName,
+        })
+        continue
+      }
       const old = previous.find((file) => file.path === item.path)
       const matches = notes.filter((note) => note.sourcePath === sourcePath)
       const activeMatches = matches.filter((note) => !note.deletedAt)
@@ -200,11 +225,14 @@ export function useLocalFolder({
       next.push(entry)
     }
     for (const old of previous)
-      if (!disk.some((item) => item.path === old.path))
+      if (
+        !disk.some((item) => item.type === 'markdown' && item.path === old.path)
+      )
         next.push({ ...old, disk: null })
     // Reconnecting must also retain workspace copies of files removed while offline.
     for (const note of notes) {
       if (
+        note.mediaType !== 'pdf' &&
         note.sourcePath?.startsWith(`${root.name}/`) &&
         !next.some((file) => file.noteId === note.id) &&
         !next.some((file) => `${root.name}/${file.path}` === note.sourcePath)
@@ -219,10 +247,19 @@ export function useLocalFolder({
     }
     if (newFolders.length || additions.length)
       importFolder(additions, newFolders)
+    syncPdfs(connectedPdfs, previousPdfIds)
     for (const note of updates) saveNote(note, true)
-    setConnection({ root, folderId: connectedFolderId, files: next })
+    const pdfIds = connectedPdfs.map((pdf) => pdf.note.id)
+    setConnection({
+      root,
+      folderId: connectedFolderId,
+      files: next,
+      pdfIds,
+    })
     setMessage(
-      'Verificação concluída. Alterações externas sem conflito foram carregadas; confira os arquivos pendentes abaixo.',
+      connectedPdfs.length
+        ? `Verificação concluída. Alterações externas sem conflito foram carregadas e ${connectedPdfs.length} ${connectedPdfs.length === 1 ? 'PDF está disponível' : 'PDFs estão disponíveis'} somente para leitura.`
+        : 'Verificação concluída. Alterações externas sem conflito foram carregadas; confira os arquivos pendentes abaixo.',
     )
     const visibleNotes = [...additions, ...notes].filter(
       (note) => !note.deletedAt,
@@ -230,13 +267,14 @@ export function useLocalFolder({
     return {
       folderId: connectedFolderId,
       noteIds: [
-        ...new Set(
-          next.flatMap((file) =>
+        ...new Set([
+          ...next.flatMap((file) =>
             visibleNotes.some((note) => note.id === file.noteId)
               ? [file.noteId]
               : [],
           ),
-        ),
+          ...pdfIds,
+        ]),
       ],
     }
   }
@@ -248,7 +286,7 @@ export function useLocalFolder({
           'Este navegador não permite conectar uma pasta com gravação. Você pode continuar usando Abrir pasta e Baixar Markdown.',
         )
       const root = await window.showDirectoryPicker({ mode: 'readwrite' })
-      const result = reconcile(root, await scanLocalFolder(root), [])
+      const result = reconcile(root, await scanLocalFolder(root), [], [])
       onConnect(result.noteIds, result.folderId)
     })
   }
@@ -274,7 +312,7 @@ export function useLocalFolder({
         ...(parentId ? { parentId } : {}),
       }
       importFolder([], [folder])
-      setConnection({ root, folderId: folder.id, files: [] })
+      setConnection({ root, folderId: folder.id, files: [], pdfIds: [] })
       onConnect([], folder.id)
       setMessage(
         `Pasta "${name}" criada no computador e conectada ao DevNotes.`,
@@ -368,6 +406,7 @@ export function useLocalFolder({
       setConnection({
         root,
         folderId: folder.id,
+        pdfIds: [],
         files: files.map((file) => ({
           noteId: file.note.id,
           path: file.path,
@@ -392,6 +431,7 @@ export function useLocalFolder({
         connection.root,
         await scanLocalFolder(connection.root),
         connection.files,
+        connection.pdfIds,
         connection.folderId,
       )
     })
@@ -543,6 +583,7 @@ export function useLocalFolder({
     connection,
     rootName: connection?.root.name,
     files,
+    pdfCount: connection?.pdfIds.length ?? 0,
     busy,
     error,
     message,
