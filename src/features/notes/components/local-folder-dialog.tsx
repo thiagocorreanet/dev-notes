@@ -13,9 +13,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import type { useLocalFolder } from '../hooks/use-local-folder'
-import type { Note } from '../types'
-import { serializeLocalNote } from '../local-folder'
-import { markdownFilename } from '../workspace-files'
+import type { Note, WorkspaceFolder } from '../types'
+import { serializeLocalNote, suggestedLocalPath } from '../local-folder'
 
 const statusLabels = {
   saved: 'Salvo na pasta',
@@ -28,15 +27,19 @@ const statusLabels = {
 export function LocalFolderDialog({
   sync,
   note,
+  folders,
   onClose,
   onOpenNote,
 }: {
   sync: ReturnType<typeof useLocalFolder>
   note: Note
+  folders: WorkspaceFolder[]
   onClose: () => void
   onOpenNote: (id: string) => void
 }) {
-  const [path, setPath] = useState(markdownFilename(note.title))
+  const [path, setPath] = useState(() =>
+    suggestedLocalPath(note, folders, sync.connection?.folderId),
+  )
   const [reviewId, setReviewId] = useState<string | null>(null)
   const isPdf = note.mediaType === 'pdf'
   const active = sync.files.find((file) => file.noteId === note.id)

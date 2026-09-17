@@ -180,7 +180,7 @@ async function openBrowser(url: string) {
 async function main() {
   if (args.includes('--help')) {
     console.log(
-      'Usage: devnotes [--no-browser] [--port=45164] [--] [file.md ...]\n       devnotes --stop\nOpen Markdown files in the default browser. Use --no-browser to print launch URLs instead.',
+      'Usage: devnotes [--no-browser] [--port=45164] [--] [file.md | folder ...]\n       devnotes --stop\nOpen Markdown files, PDFs, or a workspace folder in the default browser. Use --no-browser to print launch URLs instead.',
     )
     return
   }
@@ -220,13 +220,25 @@ async function main() {
           ]
     const state = await ensureServer(port)
     for (const file of files.length ? files : [undefined]) {
+      const folder = file
+        ? await stat(resolve(file)).then(
+            (info) => info.isDirectory(),
+            () => false,
+          )
+        : false
       const response = await fetch(`${state.origin}/api/launch`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${state.token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(file ? { file: resolve(file) } : {}),
+        body: JSON.stringify(
+          file
+            ? folder
+              ? { workspace: resolve(file) }
+              : { file: resolve(file) }
+            : {},
+        ),
         signal: AbortSignal.timeout(10_000),
       })
       const result: unknown = await response.json()
@@ -238,7 +250,9 @@ async function main() {
         typeof result.url !== 'string'
       )
         throw new Error(
-          `Could not open ${file ?? 'DevNotes'}: ${response.status}. Check that it is an existing UTF-8 Markdown file of at most 2 MB or a valid PDF of at most 50 MB.`,
+          folder
+            ? `Could not open the workspace folder ${file}: ${response.status}.`
+            : `Could not open ${file ?? 'DevNotes'}: ${response.status}. Check that it is an existing UTF-8 Markdown file of at most 2 MB, a valid PDF of at most 50 MB, or a folder.`,
         )
       if (flags.includes('--no-browser')) console.log(result.url)
       else await openBrowser(result.url)

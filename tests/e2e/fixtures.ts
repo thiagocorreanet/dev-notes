@@ -1,5 +1,5 @@
 import { test as base, expect } from '@playwright/test'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { startLocalServer } from '../../scripts/local/server.ts'
@@ -12,6 +12,11 @@ interface LocalFile {
 
 interface LocalPdf {
   path: string
+  url: string
+}
+
+interface LocalWorkspace {
+  root: string
   url: string
 }
 
@@ -43,7 +48,44 @@ function createPdf() {
 export const test = base.extend<{
   localFile: LocalFile
   localPdf: LocalPdf
+  localWorkspace: LocalWorkspace
 }>({
+  localWorkspace: async ({ browserName }, provide) => {
+    const directory = await mkdtemp(
+      join(tmpdir(), `devnotes-workspace-${browserName}-`),
+    )
+    const root = join(directory, 'Notas')
+    await mkdir(join(root, 'Clientes', 'Acme'), { recursive: true })
+    await writeFile(
+      join(root, 'Clientes', 'Acme', 'Contrato.md'),
+      '# Contrato Acme\n\nAssinado em setembro.\n',
+    )
+    await writeFile(join(root, 'Clientes', 'logo.png'), 'png')
+    await writeFile(
+      join(root, 'Leia-me.md'),
+      '# Leia-me\n\nPrimeiros passos.\n',
+    )
+    const service = await startLocalServer({ dist: resolve('dist') })
+    try {
+      const response = await fetch(`${service.origin}/api/launch`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${service.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspace: root }),
+      })
+      expect(response.ok).toBe(true)
+      const launch = (await response.json()) as { url: string }
+      await provide({ root, url: launch.url })
+    } finally {
+      await new Promise<void>((done) => {
+        service.server.close(() => done())
+        service.server.closeAllConnections()
+      })
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
   localFile: async ({ browserName }, provide) => {
     const directory = await mkdtemp(join(tmpdir(), `devnotes-${browserName}-`))
     const path = join(directory, 'a space & ação #1.md')

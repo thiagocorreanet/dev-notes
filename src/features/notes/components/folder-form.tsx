@@ -20,12 +20,15 @@ export function FolderForm({
   computerSupported,
   onCreateInBrowser,
   onCreateOnComputer,
+  workspaceFolder = false,
 }: {
   busy: boolean
   computerError: string
   computerSupported: boolean
   onCreateInBrowser: (name: string) => void
   onCreateOnComputer: (name: string) => Promise<boolean>
+  /** In a folder workspace every folder is created on disk, inside the selected folder. */
+  workspaceFolder?: boolean
 }) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
@@ -46,6 +49,10 @@ export function FolderForm({
   }
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (workspaceFolder) {
+      createInBrowser()
+      return
+    }
     const value = validName()
     if (!value) return
     setComputerAttempted(true)
@@ -94,51 +101,60 @@ export function FolderForm({
           </AlertDescription>
         </Alert>
       )}
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-        <Card className="min-w-0 ring-primary/25">
-          <CardHeader>
-            <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <HardDrive aria-hidden="true" className="size-4" />
-            </div>
-            <CardTitle>No computador</CardTitle>
-            <CardDescription>
-              Cria uma pasta real dentro do local que você escolher.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="mt-auto">
-            <Button
-              type="submit"
-              className="h-auto min-h-8 w-full min-w-0 whitespace-normal"
-              disabled={busy || !computerSupported}
-            >
-              Escolher local e criar
-            </Button>
-          </CardContent>
-        </Card>
-        <Card className="min-w-0">
-          <CardHeader>
-            <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              <FolderOpen aria-hidden="true" className="size-4" />
-            </div>
-            <CardTitle>Neste navegador</CardTitle>
-            <CardDescription>
-              Mantém a pasta neste navegador, sem criar arquivos no computador.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="mt-auto">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-auto min-h-8 w-full min-w-0 whitespace-normal"
-              disabled={busy}
-              onClick={createInBrowser}
-            >
-              Criar somente neste navegador
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-      {!computerSupported && (
+      {workspaceFolder ? (
+        <div className="flex justify-end">
+          <Button type="submit" disabled={busy}>
+            Criar pasta
+          </Button>
+        </div>
+      ) : (
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <Card className="min-w-0 ring-primary/25">
+            <CardHeader>
+              <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <HardDrive aria-hidden="true" className="size-4" />
+              </div>
+              <CardTitle>No computador</CardTitle>
+              <CardDescription>
+                Cria uma pasta real dentro do local que você escolher.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="mt-auto">
+              <Button
+                type="submit"
+                className="h-auto min-h-8 w-full min-w-0 whitespace-normal"
+                disabled={busy || !computerSupported}
+              >
+                Escolher local e criar
+              </Button>
+            </CardContent>
+          </Card>
+          <Card className="min-w-0">
+            <CardHeader>
+              <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <FolderOpen aria-hidden="true" className="size-4" />
+              </div>
+              <CardTitle>Neste navegador</CardTitle>
+              <CardDescription>
+                Mantém a pasta neste navegador, sem criar arquivos no
+                computador.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="mt-auto">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-auto min-h-8 w-full min-w-0 whitespace-normal"
+                disabled={busy}
+                onClick={createInBrowser}
+              >
+                Criar somente neste navegador
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      {!computerSupported && !workspaceFolder && (
         <p className="text-xs leading-relaxed text-muted-foreground">
           Este navegador não permite criar pastas no computador. A pasta ainda
           pode ser criada somente neste navegador.

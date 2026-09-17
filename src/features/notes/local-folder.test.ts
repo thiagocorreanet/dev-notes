@@ -4,6 +4,7 @@ import {
   FileChangedError,
   scanLocalFolder,
   serializeLocalNote,
+  suggestedLocalPath,
   syncStatus,
   validateLocalPath,
   writeLocalPath,
@@ -46,6 +47,53 @@ describe('Local folder synchronization', () => {
     expect(serializeLocalNote({ ...note, title: 'Renamed' }, file)).toBe(
       '# Renamed\n\nOriginal',
     )
+  })
+  it('writes plain Markdown instead of keeping the envelope when protection is removed', () => {
+    const envelope = `<!-- devnotes:encrypted:v1 -->\n${JSON.stringify({
+      format: 'devnotes-encrypted',
+      version: 1,
+      title: 'Guide',
+      payload: {
+        algorithm: 'AES-GCM',
+        kdf: 'PBKDF2-SHA-256',
+        iterations: 310000,
+        salt: 'c2FsdA==',
+        iv: 'aXY=',
+        ciphertext: 'Y2lwaGVy',
+      },
+    })}\n`
+    expect(serializeLocalNote(note, { ...file, baseline: envelope })).toBe(
+      '# Guide\n\nOriginal',
+    )
+  })
+  it('suggests file paths that follow the folders below the connected folder', () => {
+    const folders = [
+      { id: 'root', name: 'Projeto' },
+      { id: 'clientes', name: 'Clientes', parentId: 'root' },
+      { id: 'acme', name: 'Acme', parentId: 'clientes' },
+      { id: 'outra', name: 'Outra' },
+    ]
+    expect(
+      suggestedLocalPath(
+        { title: 'Contrato', folderId: 'acme' },
+        folders,
+        'root',
+      ),
+    ).toBe('Clientes/Acme/Contrato.md')
+    expect(
+      suggestedLocalPath(
+        { title: 'Contrato', folderId: 'root' },
+        folders,
+        'root',
+      ),
+    ).toBe('Contrato.md')
+    expect(
+      suggestedLocalPath(
+        { title: 'Contrato', folderId: 'outra' },
+        folders,
+        'root',
+      ),
+    ).toBe('Contrato.md')
   })
   it('scans nested Markdown and PDFs and ignores repository internals', async () => {
     const { root } = localFolderFixture({

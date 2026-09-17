@@ -23,6 +23,25 @@ import type {
   ImportedPdf,
 } from '../workspace-files'
 import { useNotes } from './use-notes'
+import { useDiskNotes } from './use-disk-notes'
+import {
+  chooseDiskWorkspace,
+  createDiskWorkspaceClient,
+  diskWorkspaceUrl,
+  launcherSession,
+  requestedDiskWorkspace,
+} from '../disk-workspace-client'
+import {
+  availablePath,
+  DISK_METADATA_PATH,
+  diskFilename,
+  diskFolderName,
+  emptyDiskMetadata,
+  historyPath,
+  serializeDiskHistory,
+  serializeDiskMetadata,
+} from '../disk-workspace'
+import { serializeLocalNote } from '../local-folder'
 import { useLocalFolder } from './use-local-folder'
 import {
   createFolderProtection,
@@ -38,14 +57,29 @@ import { isPdfFilename, readPdfFile } from '../pdf-files'
 type PdfWorkspaceDocument = ImportedPdf
 
 export function useWorkspace() {
-  const store = useNotes()
+  const [launcher] = useState(launcherSession)
+  const [diskWorkspaceId] = useState(requestedDiskWorkspace)
+  const [diskTabsKey, setDiskTabsKey] = useState<string | null>(null)
+  const browserStore = useNotes()
+  const diskStore = useDiskNotes(diskWorkspaceId, (path) => {
+    // Each folder remembers its own open tabs in this browser.
+    const key = `${TABS_KEY}:${path}`
+    const tabs = loadTabs(key)
+    if (tabs.activeId) {
+      setActiveId(tabs.activeId)
+      setOpenIds(tabs.ids)
+    }
+    setDiskTabsKey(key)
+  })
+  const store = diskWorkspaceId ? diskStore : browserStore
+  const disk = diskWorkspaceId ? diskStore.disk : null
   const [drafts, setDrafts] = useState<Note[]>([])
   const [pdfFiles, setPdfFiles] = useState(
     new Map<string, PdfWorkspaceDocument>(),
   )
   const [localLaunch] = useState(() => requestedLocalFile() !== null)
   const [initialTabs] = useState(() =>
-    localLaunch ? { ids: [], activeId: null } : loadTabs(),
+    localLaunch || diskWorkspaceId ? { ids: [], activeId: null } : loadTabs(),
   )
   const [activeId, setActiveId] = useState<string | null>(initialTabs.activeId)
   const [openIds, setOpenIds] = useState(initialTabs.ids)
@@ -99,6 +133,7 @@ export function useWorkspace() {
   const documents = [
     ...localDocuments.notes.map(revealNote),
     ...[...pdfFiles.values()].map((file) => file.note),
+    ...(disk?.pdfs ?? []),
     ...drafts,
     ...store.notes
       .map(revealNote)
@@ -108,15 +143,19 @@ export function useWorkspace() {
           !localDocuments.has(note.id) &&
           !drafts.some((draft) => draft.id === note.id),
       ),
-    ...exampleNotes.filter(
-      (example) =>
-        !store.notes.some((note) => note.id === example.id) &&
-        !store.suppressedExampleIds.includes(example.id),
-    ),
+    // A folder workspace shows only what exists in that folder.
+    ...(disk
+      ? []
+      : exampleNotes.filter(
+          (example) =>
+            !store.notes.some((note) => note.id === example.id) &&
+            !store.suppressedExampleIds.includes(example.id),
+        )),
   ]
   const activeNote =
     documents.find((note) => note.id === activeId) ??
     (emptyFolderOpen ||
+    disk?.loading ||
     (localLaunch && (localDocuments.loading || localDocuments.error))
       ? { id: 'empty-workspace', title: '', content: '' }
       : (documents[0] ?? { id: 'empty-workspace', title: '', content: '' }))
@@ -143,13 +182,22 @@ export function useWorkspace() {
     activeId: activeNote.id,
   })
   useEffect(() => {
-    if (localLaunch) return
+    if (localLaunch || (diskWorkspaceId && !diskTabsKey)) return
     try {
-      localStorage.setItem(TABS_KEY, tabsSnapshot)
+      localStorage.setItem(diskTabsKey ?? TABS_KEY, tabsSnapshot)
     } catch {
       /* Document persistence reports storage failures separately. */
     }
-  }, [localLaunch, tabsSnapshot])
+  }, [localLaunch, diskWorkspaceId, diskTabsKey, tabsSnapshot])
+
+  const activePdfId =
+    activeNote.mediaType === 'pdf' && disk && !disk.pdfData(activeNote.id)
+      ? activeNote.id
+      : null
+  const loadDiskPdf = disk?.loadPdf
+  useEffect(() => {
+    if (activePdfId) loadDiskPdf?.(activePdfId)
+  }, [activePdfId, loadDiskPdf])
 
   function activate(id: string | null) {
     if (id) setEmptyFolderOpen(false)
@@ -475,7 +523,13 @@ export function useWorkspace() {
     }
     if (action.type === 'move' && action.parentId)
       setExpandedFolders((current) => new Set([...current, action.parentId!]))
-    setMessage(saved ? 'Alteração salva neste navegador.' : '')
+    setMessage(
+      !saved
+        ? ''
+        : disk
+          ? 'Alteração aplicada na pasta do workspace.'
+          : 'Alteração salva neste navegador.',
+    )
   }
 
   function reportError(error: unknown) {
@@ -529,7 +583,9 @@ export function useWorkspace() {
     setQuery('')
     setMode('edit')
     setMessage(
-      'Documento temporário criado. Salve a página para guardá-lo neste navegador.',
+      disk
+        ? 'Documento temporário criado. Salve a página para gravá-lo na pasta do workspace.'
+        : 'Documento temporário criado. Salve a página para guardá-lo neste navegador.',
     )
   }
 
@@ -594,14 +650,20 @@ export function useWorkspace() {
     setSaveFeedback({ note, phase: 'saving' })
     setActionError(null)
     try {
-      const saved = note.protection
+      let saved = note.protection
         ? !!protectionKeys.current.get(note.id)
         : localDocuments.has(note.id)
           ? await localDocuments.save(note)
           : store.saveNote(note)
       if (saved && !localDocuments.has(note.id)) {
         setDrafts((items) => items.filter((item) => item.id !== note.id))
-        setMessage('Página salva neste navegador.')
+        if (disk) saved = await disk.flush()
+        if (saved)
+          setMessage(
+            disk
+              ? 'Página salva na pasta do workspace.'
+              : 'Página salva neste navegador.',
+          )
       }
       setSaveFeedback({ note, phase: saved ? 'saved' : 'error' })
       return saved
@@ -890,6 +952,12 @@ export function useWorkspace() {
   }
 
   function requestRefresh() {
+    if (disk) {
+      void disk.refresh().then((refreshed) => {
+        if (refreshed) setMessage('Pasta do workspace recarregada.')
+      })
+      return
+    }
     if (!activeNote.sourcePath) return
     if (activeNote.mediaType === 'pdf') {
       void refreshFile(activeNote)
@@ -980,10 +1048,92 @@ export function useWorkspace() {
     },
   })
 
+  async function openDiskWorkspace(mode: 'open' | 'create', name?: string) {
+    setBusy(true)
+    setActionError(null)
+    try {
+      const id = await chooseDiskWorkspace(mode, name)
+      if (id) window.location.assign(diskWorkspaceUrl(id))
+      return !!id
+    } catch (error) {
+      reportError(error)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Writes the browser workspace into a new folder, keeping ids, favorites, history, and protection. */
+  async function copyToDiskWorkspace(name: string) {
+    setBusy(true)
+    setActionError(null)
+    try {
+      const id = await chooseDiskWorkspace('create', name)
+      if (!id) return false
+      const client = createDiskWorkspaceClient(id)
+      const metadata = emptyDiskMetadata()
+      const paths = new Map<string, string>()
+      const folders = store.folders.filter((folder) => !folder.deletedAt)
+      while (folders.length) {
+        const index = folders.findIndex(
+          (folder) => !folder.parentId || paths.has(folder.parentId),
+        )
+        if (index < 0) break
+        const [folder] = folders.splice(index, 1)
+        const path = availablePath(
+          paths.values(),
+          folder!.parentId ? paths.get(folder!.parentId)! : '',
+          diskFolderName(folder!.name),
+        )
+        await client.createDirectory(path)
+        paths.set(folder!.id, path)
+        metadata.items.push({
+          id: folder!.id,
+          path,
+          ...(folder!.protection ? { protection: folder!.protection } : {}),
+        })
+      }
+      for (const note of store.notes) {
+        if (note.deletedAt || note.mediaType === 'pdf') continue
+        const directory = note.folderId ? paths.get(note.folderId) : ''
+        const path = availablePath(
+          paths.values(),
+          directory ?? '',
+          diskFilename(note.title),
+        )
+        await client.writeFile(path, serializeLocalNote(note), null)
+        paths.set(note.id, path)
+        metadata.items.push({
+          id: note.id,
+          path,
+          ...(note.favorite ? { favorite: true as const } : {}),
+        })
+        if (note.revisions?.length && !note.protection)
+          await client.writeFile(
+            historyPath(note.id),
+            serializeDiskHistory(note.revisions),
+            null,
+          )
+      }
+      await client.writeFile(
+        DISK_METADATA_PATH,
+        serializeDiskMetadata(metadata),
+        null,
+      )
+      window.location.assign(diskWorkspaceUrl(id))
+      return true
+    } catch (error) {
+      reportError(error)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return {
     ...store,
     pdfData: (id: string) =>
-      localDocuments.pdfData(id) ?? pdfFiles.get(id)?.data,
+      localDocuments.pdfData(id) ?? pdfFiles.get(id)?.data ?? disk?.pdfData(id),
     localFolder,
     localDocuments,
     restoreRevision: (id: string, revisionId: string) => {
@@ -1049,8 +1199,26 @@ export function useWorkspace() {
       saveFeedback.note.content === activeNote.content
         ? saveFeedback.phase
         : 'idle',
+    diskWorkspace: {
+      available: launcher,
+      active: !!disk,
+      loading: !!disk?.loading,
+      saving: !!disk?.saving,
+      name: disk?.name ?? '',
+      path: disk?.path ?? '',
+      conflict: disk?.conflict ?? null,
+      skipped: disk?.skipped ?? [],
+      pathOf: (id: string) => disk?.pathOf(id),
+      resolveConflict: (id: string, choice: 'disk' | 'local') =>
+        disk?.resolveConflict(id, choice),
+      open: () => openDiskWorkspace('open'),
+      create: (name: string) => openDiskWorkspace('create', name),
+      copyBrowserWorkspace: copyToDiskWorkspace,
+      useBrowserWorkspace: () => window.location.assign(diskWorkspaceUrl()),
+    },
     busy:
       busy ||
+      !!disk?.loading ||
       localFolder.busy ||
       localDocuments.busy ||
       saveFeedback?.phase === 'saving' ||

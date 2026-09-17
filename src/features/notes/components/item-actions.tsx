@@ -48,6 +48,8 @@ interface Props {
   protected?: boolean | undefined
   locked?: boolean | undefined
   protectionOwner?: boolean | undefined
+  /** Folder workspaces are already on disk, so saving a folder copy does not apply. */
+  savable?: boolean | undefined
   onAction: (request: ItemActionRequest) => void
 }
 
@@ -57,6 +59,7 @@ function actions({
   protected: isProtected,
   locked,
   protectionOwner,
+  savable = true,
 }: Props) {
   return [
     ...(!isProtected
@@ -90,7 +93,7 @@ function actions({
     ...(!isProtected
       ? [{ action: 'duplicate' as const, label: 'Duplicar', icon: Copy }]
       : []),
-    ...(target.kind === 'folder'
+    ...(target.kind === 'folder' && savable
       ? [
           {
             action: 'save-folder' as const,

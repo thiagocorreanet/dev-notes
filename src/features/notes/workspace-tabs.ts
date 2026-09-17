@@ -1,8 +1,11 @@
 export const TABS_KEY = 'dev-notes:tabs:v1'
 
-export function loadTabs(): { ids: string[]; activeId: string | null } {
+export function loadTabs(key = TABS_KEY): {
+  ids: string[]
+  activeId: string | null
+} {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(TABS_KEY) ?? 'null')
+    const value: unknown = JSON.parse(localStorage.getItem(key) ?? 'null')
     if (
       value &&
       typeof value === 'object' &&

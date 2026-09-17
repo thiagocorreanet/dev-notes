@@ -49,6 +49,10 @@ Select text in reading or visual-editing mode to add a yellow, green, blue, or p
 
 Create nested folders, keep several documents open in tabs, and pin favorites. When creating a folder, choose a matching location on the computer to create and connect it, or keep it only in the browser. The selected workspace folder remains its parent, so a directory created inside `docs` appears as `docs/child` in the sidebar. Existing workspace folders can be saved to a chosen computer location from their item menu. Manual connected-folder scans discover new Markdown files and read-only PDFs. The sidebar shows standalone files and the actual folders you open, without adding a synthetic root folder. Search titles, document content, and folder paths. Rename, move, or duplicate workspace items from their menus. Deleted notes go to the trash, and document history lets you compare and restore earlier versions.
 
+### Keep a workspace in a folder
+
+Open a folder on your computer as the workspace, and the sidebar shows exactly what is in it. Creating, renaming, moving, or trashing a page or folder in DevNotes does the same on disk, so the two hierarchies stay identical. Edits are written to the Markdown file automatically, and changes made by other programs appear when you return to DevNotes. Document identifiers, favorites, folder protection, and history live in a hidden `.devnotes` folder inside the workspace; trashed items wait in `.devnotes/trash`. Folder workspaces use the Linux launcher: run `devnotes /path/to/folder`, choose DevNotes in **Open With** for a folder, or use **Switch workspace** in the sidebar, which can also copy the browser workspace into a new folder.
+
 ### Protect private documents
 
 Protect a document or an entire folder from its item menu. DevNotes encrypts document content and revision history with AES-GCM, derives keys from the password with PBKDF2, and keeps unlocked keys only in the current page session. Folder protection covers existing descendants and new documents created while the folder is unlocked. Protected downloads and connected-folder saves retain their encrypted envelope inside the `.md` file, so other Markdown editors cannot read the content until protection is removed. Titles, filenames, and folder names remain visible. DevNotes cannot recover a forgotten password.
@@ -102,7 +106,7 @@ After installing the dependencies, run:
 npm run local:install -- --default
 ```
 
-This builds the app, registers DevNotes as the default Markdown application for your Linux user, and adds it to the PDF **Open With** menu. The installer deliberately leaves your default PDF viewer unchanged. Omit `--default` to avoid changing the Markdown default as well.
+This builds the app, registers DevNotes as the default Markdown application for your Linux user, and adds it to the **Open With** menu for PDFs and folders. The installer deliberately leaves your default PDF viewer unchanged. Omit `--default` to avoid changing the Markdown default as well.
 
 Double-click a `.md` or `.markdown` file, or choose DevNotes for a `.pdf` file. The launcher starts a background service and opens a URL like this:
 
@@ -117,6 +121,12 @@ To launch a document without registering a file association:
 ```bash
 npm run build
 npm run local:open -- "/absolute/path/to/note.md"
+```
+
+To open a folder as the workspace, pass the folder instead of a file:
+
+```bash
+npm run local:open -- "/absolute/path/to/notes"
 ```
 
 To stop the service or remove the Linux integration:
@@ -136,6 +146,7 @@ Uninstalling keeps your documents and checkout. See the [local launcher guide](d
 | File picker, folder import, or drag and drop | Markdown opens as a workspace copy. PDFs remain read-only and available only for the current page session.      |
 | Linux file association or local launcher     | Markdown can save to the original file. PDFs are served from the authorized original path and remain read-only. |
 | Connected local folder                       | Explicit Markdown folder-save actions write to disk. Manual scans detect external changes and report conflicts. |
+| Folder workspace through the local launcher  | Edits and folder changes are written to the folder on disk automatically. PDFs in the folder are read-only.     |
 
 Clearing browser data removes the browser workspace, preferences, and recovery snapshots. Download important notes separately. Connected-folder access requires a browser with the directory picker API; other browsers can still import files and download Markdown copies.
 

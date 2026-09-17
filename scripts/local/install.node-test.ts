@@ -57,7 +57,7 @@ void test(
     )
     assert.match(
       await readFile(join(apps, 'devnotes-local.desktop'), 'utf8'),
-      /MimeType=text\/markdown;text\/x-markdown;application\/pdf;/,
+      /MimeType=text\/markdown;text\/x-markdown;application\/pdf;inode\/directory;/,
     )
     install('--default')
     const previous = JSON.parse(

@@ -8,6 +8,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FilePlus2,
   Upload,
   LockKeyhole,
 } from 'lucide-react'
@@ -43,7 +44,7 @@ import {
 } from '@/components/ui/sidebar'
 import type { Note, WorkspaceFolder } from '../types'
 import { WorkspaceToolbar } from './workspace-toolbar'
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import { DevNotesBrand } from './devnotes-brand'
 
 interface NotesSidebarProps {
@@ -64,8 +65,12 @@ interface NotesSidebarProps {
   onToggleFolder: (id: string, open: boolean) => void
   actions: Omit<
     ComponentProps<typeof WorkspaceToolbar>,
-    'busy' | 'canRefresh' | 'hasFolders'
+    'busy' | 'canRefresh' | 'hasFolders' | 'diskWorkspace'
   >
+  /** Present when the workspace is a folder on the computer. */
+  workspaceFolder?: { name: string; path: string } | undefined
+  workspaceSwitcher?: ReactNode
+  pathOf?: (id: string) => string | undefined
   onOpenFile: () => void
   protectionOwner?: (target: {
     kind: 'note' | 'folder'
@@ -96,6 +101,9 @@ export function NotesSidebar({
   protectionOwner = () => undefined,
   isNoteLocked = () => false,
   isFolderLocked = () => false,
+  workspaceFolder,
+  workspaceSwitcher,
+  pathOf = () => undefined,
 }: NotesSidebarProps) {
   const { setOpenMobile, isMobile } = useSidebar()
   const search = query.trim().toLowerCase()
@@ -174,6 +182,7 @@ export function NotesSidebar({
                   protected={protectedFolder}
                   locked={locked}
                   protectionOwner={ownerId === folder.id}
+                  savable={!workspaceFolder}
                   onAction={(request) => onItemAction?.(request)}
                 >
                   <CollapsibleTrigger asChild>
@@ -212,6 +221,7 @@ export function NotesSidebar({
                     protected={protectedFolder}
                     locked={locked}
                     protectionOwner={ownerId === folder.id}
+                    savable={!workspaceFolder}
                     onAction={onItemAction}
                   />
                 )}
@@ -248,7 +258,7 @@ export function NotesSidebar({
             <SidebarMenuButton
               isActive={note.id === activeId}
               aria-current={note.id === activeId ? 'page' : undefined}
-              title={note.sourcePath ?? note.title}
+              title={pathOf(note.id) ?? note.sourcePath ?? note.title}
               onClick={() => {
                 onSelect(note.id)
                 setOpenMobile(false)
@@ -330,16 +340,22 @@ export function NotesSidebar({
           </p>
         </div>
         <div className="flex items-center justify-between gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="-ml-2 h-7 min-w-0 px-2 text-xs font-medium text-muted-foreground"
-            aria-label="Selecionar raiz do espaço de trabalho"
-            aria-pressed={selectedFolder === undefined}
-            onClick={onSelectRoot}
-          >
-            Espaço de trabalho
-          </Button>
+          <div className="flex min-w-0 items-center">
+            {workspaceSwitcher}
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-7 min-w-0 px-2 text-xs font-medium text-muted-foreground ${workspaceSwitcher ? '' : '-ml-2'}`}
+              aria-label="Selecionar raiz do espaço de trabalho"
+              aria-pressed={selectedFolder === undefined}
+              title={workspaceFolder?.path}
+              onClick={onSelectRoot}
+            >
+              <span className="truncate">
+                {workspaceFolder?.name || 'Espaço de trabalho'}
+              </span>
+            </Button>
+          </div>
           <WorkspaceToolbar
             {...actions}
             onNewDocument={() => leaveSidebar(actions.onNewDocument)}
@@ -349,6 +365,7 @@ export function NotesSidebar({
             busy={busy}
             canRefresh={canRefresh}
             hasFolders={folders.length > 0}
+            diskWorkspace={!!workspaceFolder}
           />
         </div>
         <div>
@@ -416,31 +433,58 @@ export function NotesSidebar({
                   <EmptyMedia variant="icon">
                     <FolderOpen aria-hidden="true" />
                   </EmptyMedia>
-                  <EmptyTitle>Nenhum arquivo ou pasta aberto</EmptyTitle>
+                  <EmptyTitle>
+                    {workspaceFolder
+                      ? 'Esta pasta está vazia'
+                      : 'Nenhum arquivo ou pasta aberto'}
+                  </EmptyTitle>
                   <EmptyDescription>
-                    Abra um documento Markdown ou PDF, ou escolha uma pasta para
-                    começar.
+                    {workspaceFolder
+                      ? 'Crie uma página ou uma pasta. Os arquivos aparecem também no computador.'
+                      : 'Abra um documento Markdown ou PDF, ou escolha uma pasta para começar.'}
                   </EmptyDescription>
                 </EmptyHeader>
-                <EmptyContent className="flex-row justify-center">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => leaveSidebar(onOpenFile)}
-                  >
-                    <Upload aria-hidden="true" />
-                    Abrir arquivo
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => leaveSidebar(actions.onOpenFolder)}
-                  >
-                    <FolderOpen aria-hidden="true" />
-                    Escolher pasta
-                  </Button>
-                </EmptyContent>
+                {workspaceFolder ? (
+                  <EmptyContent className="flex-row justify-center">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => leaveSidebar(actions.onNewFolder)}
+                    >
+                      <FolderPlus aria-hidden="true" />
+                      Nova pasta
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => leaveSidebar(actions.onNewPage)}
+                    >
+                      <FilePlus2 aria-hidden="true" />
+                      Nova página
+                    </Button>
+                  </EmptyContent>
+                ) : (
+                  <EmptyContent className="flex-row justify-center">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => leaveSidebar(onOpenFile)}
+                    >
+                      <Upload aria-hidden="true" />
+                      Abrir arquivo
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => leaveSidebar(actions.onOpenFolder)}
+                    >
+                      <FolderOpen aria-hidden="true" />
+                      Escolher pasta
+                    </Button>
+                  </EmptyContent>
+                )}
               </Empty>
             </>
           )}
@@ -470,11 +514,13 @@ export function NotesSidebar({
           Guarde o que aprende. Desenvolva melhor.
         </p>
         <p>
-          {localFile
-            ? 'Salvar grava as alterações no arquivo original.'
-            : notes.length || folders.length
-              ? 'Você edita cópias. Os arquivos originais não mudam.'
-              : 'Abra um arquivo ou escolha uma pasta para começar.'}
+          {workspaceFolder
+            ? `Você edita os arquivos da pasta ${workspaceFolder.name} diretamente.`
+            : localFile
+              ? 'Salvar grava as alterações no arquivo original.'
+              : notes.length || folders.length
+                ? 'Você edita cópias. Os arquivos originais não mudam.'
+                : 'Abra um arquivo ou escolha uma pasta para começar.'}
         </p>
       </SidebarFooter>
     </Sidebar>
