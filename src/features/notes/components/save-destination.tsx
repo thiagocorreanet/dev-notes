@@ -7,10 +7,12 @@ export function SaveDestination({
   original,
   connectedPath,
   temporary,
+  workspacePath,
   onOpenFolder,
 }: {
   note: Note
   original: boolean
+  workspacePath?: string | undefined
   connectedPath?: string | undefined
   temporary: boolean
   onOpenFolder: () => void
@@ -22,24 +24,32 @@ export function SaveDestination({
       className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 text-xs"
     >
       <Badge variant="secondary">
-        {original
-          ? 'Arquivo original'
-          : connectedPath
-            ? 'Pasta conectada'
-            : note.sourcePath
-              ? 'Cópia importada'
-              : temporary
-                ? 'Documento temporário'
-                : 'Neste navegador'}
+        {workspacePath !== undefined
+          ? temporary
+            ? 'Documento temporário'
+            : 'Pasta do workspace'
+          : original
+            ? 'Arquivo original'
+            : connectedPath
+              ? 'Pasta conectada'
+              : note.sourcePath
+                ? 'Cópia importada'
+                : temporary
+                  ? 'Documento temporário'
+                  : 'Neste navegador'}
       </Badge>
       <p className="min-w-0 break-all text-muted-foreground">
-        {original
-          ? `Salvar grava no computador: ${note.sourcePath ?? note.title}`
-          : connectedPath
-            ? `Salvar e Ctrl/Cmd+S guardam neste navegador. Arquivo na pasta: ${connectedPath}`
-            : temporary
-              ? 'Salvar guarda este documento neste navegador. Baixar cria uma cópia Markdown.'
-              : 'Salvar guarda neste navegador. Para gravar uma cópia no computador, use Baixar ou Salvar como.'}
+        {workspacePath !== undefined
+          ? temporary
+            ? 'Salvar grava este documento na pasta do workspace.'
+            : `As alterações são gravadas automaticamente em ${workspacePath}.`
+          : original
+            ? `Salvar grava no computador: ${note.sourcePath ?? note.title}`
+            : connectedPath
+              ? `Salvar e Ctrl/Cmd+S guardam neste navegador. Arquivo na pasta: ${connectedPath}`
+              : temporary
+                ? 'Salvar guarda este documento neste navegador. Baixar cria uma cópia Markdown.'
+                : 'Salvar guarda neste navegador. Para gravar uma cópia no computador, use Baixar ou Salvar como.'}
       </p>
       {connectedPath && (
         <Button variant="outline" size="sm" onClick={onOpenFolder}>

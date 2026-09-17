@@ -5,6 +5,8 @@ import { motionEnabled } from '../appearance'
 import { AppearanceDialog } from './appearance-dialog'
 import { MarkdownDropZone } from './markdown-drop-zone'
 import { DraftRecovery } from './draft-recovery'
+import { DiskConflictAlert } from './disk-conflict'
+import { WorkspaceSwitcher } from './workspace-switcher'
 import { Focus, LockKeyhole, Settings2 } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { DocumentLoading } from './document-loading'
@@ -148,6 +150,7 @@ function NoteEditor({
   onChange,
   temporary,
   local,
+  workspaceFolder,
   disabled,
   visual,
   onSource,
@@ -156,6 +159,7 @@ function NoteEditor({
   onChange: (note: Note) => void
   temporary: boolean
   local: boolean
+  workspaceFolder: boolean
   disabled: boolean
   visual: boolean
   onSource: () => void
@@ -200,9 +204,13 @@ function NoteEditor({
       <p className="text-xs text-muted-foreground">
         {local
           ? 'Use Salvar ou Ctrl/Cmd+S para gravar as alterações no arquivo original.'
-          : temporary
-            ? 'Documento temporário. Salve a página para guardar suas alterações neste navegador.'
-            : 'As alterações são salvas automaticamente neste navegador.'}
+          : workspaceFolder
+            ? temporary
+              ? 'Documento temporário. Salve a página para gravá-lo na pasta do workspace.'
+              : 'As alterações são gravadas automaticamente na pasta do workspace.'
+            : temporary
+              ? 'Documento temporário. Salve a página para guardar suas alterações neste navegador.'
+              : 'As alterações são salvas automaticamente neste navegador.'}
       </p>
     </section>
   )
@@ -225,6 +233,8 @@ export function NotesPage() {
   } = workspace
   const isPdf = activeNote.mediaType === 'pdf'
   const activePdf = isPdf ? workspace.pdfData(activeNote.id) : undefined
+  const folderWorkspace = workspace.diskWorkspace
+  const opening = workspace.localDocuments.loading || folderWorkspace.loading
   const [itemRequest, setItemRequest] = useState<ItemActionRequest | null>(null)
   const [showTrash, setShowTrash] = useState(false)
   const [managementError, setManagementError] = useState('')
@@ -294,7 +304,7 @@ export function NotesPage() {
   const [focusMode, setFocusMode] = useState(false)
   const focusButton = useRef<HTMLButtonElement>(null)
   const [navigationTarget, setNavigationTarget] = useState<string | null>(null)
-  useReadingPosition(activeNote.id, mode, workspace.localDocuments.loading)
+  useReadingPosition(activeNote.id, mode, opening)
   useEffect(() => {
     if (!focusMode) return
     function leaveFocus(event: KeyboardEvent) {
@@ -403,23 +413,28 @@ export function NotesPage() {
     ai: showCodexPanel,
     minimap: () => showPanel('minimap'),
   }
-  const commands = editorCommandDefinitions.map((command) => ({
-    ...command,
-    disabled:
-      workspace.busy ||
-      (isPdf &&
-        [
-          'pdf',
-          'presentation',
-          'find',
-          'save-page',
-          'save-as',
-          'minimap',
-        ].includes(command.id)) ||
-      (workspace.isNoteLocked(activeNote.id) &&
-        ['pdf', 'presentation', 'find', 'minimap'].includes(command.id)),
-    onSelect: () => commandActions[command.id](),
-  }))
+  const commands = editorCommandDefinitions
+    // A folder workspace already saves into its folder; connecting another folder does not apply.
+    .filter(
+      (command) => !(folderWorkspace.active && command.id === 'local-folder'),
+    )
+    .map((command) => ({
+      ...command,
+      disabled:
+        workspace.busy ||
+        (isPdf &&
+          [
+            'pdf',
+            'presentation',
+            'find',
+            'save-page',
+            'save-as',
+            'minimap',
+          ].includes(command.id)) ||
+        (workspace.isNoteLocked(activeNote.id) &&
+          ['pdf', 'presentation', 'find', 'minimap'].includes(command.id)),
+      onSelect: () => commandActions[command.id](),
+    }))
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -491,7 +506,8 @@ export function NotesPage() {
     !!activeNote.protection && workspace.localDocuments.has(activeNote.id)
   const location =
     workspace.folders.find((folder) => folder.id === workspace.selectedFolder)
-      ?.name ?? 'Pasta principal'
+      ?.name ??
+    (folderWorkspace.active ? folderWorkspace.name : 'Pasta principal')
 
   return (
     <NoteNavigationContext.Provider
@@ -527,7 +543,36 @@ export function NotesPage() {
                   expandedFolders={workspace.expandedFolders}
                   query={query}
                   busy={workspace.busy}
-                  canRefresh={!!activeNote.sourcePath}
+                  canRefresh={folderWorkspace.active || !!activeNote.sourcePath}
+                  workspaceFolder={
+                    folderWorkspace.active
+                      ? {
+                          name: folderWorkspace.name,
+                          path: folderWorkspace.path,
+                        }
+                      : undefined
+                  }
+                  workspaceSwitcher={
+                    folderWorkspace.available ? (
+                      <WorkspaceSwitcher
+                        active={folderWorkspace.active}
+                        name={folderWorkspace.name}
+                        path={folderWorkspace.path}
+                        busy={workspace.busy}
+                        onOpen={() => {
+                          void folderWorkspace.open()
+                        }}
+                        onCreate={folderWorkspace.create}
+                        onCopyBrowserWorkspace={
+                          folderWorkspace.copyBrowserWorkspace
+                        }
+                        onUseBrowserWorkspace={
+                          folderWorkspace.useBrowserWorkspace
+                        }
+                      />
+                    ) : undefined
+                  }
+                  pathOf={folderWorkspace.pathOf}
                   localFile={
                     workspace.localDocuments.has(activeNote.id) && !isPdf
                   }
@@ -625,26 +670,29 @@ export function NotesPage() {
                     </TooltipTrigger>
                     <TooltipContent>Painel de tarefas</TooltipContent>
                   </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        data-focus-secondary
-                        aria-label="Pasta local"
-                        disabled={workspace.busy}
-                        onClick={() => showPanel('local-folder')}
-                      >
-                        <FolderSync aria-hidden="true" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Pasta local</TooltipContent>
-                  </Tooltip>
+                  {!folderWorkspace.active && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          data-focus-secondary
+                          aria-label="Pasta local"
+                          disabled={workspace.busy}
+                          onClick={() => showPanel('local-folder')}
+                        >
+                          <FolderSync aria-hidden="true" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Pasta local</TooltipContent>
+                    </Tooltip>
+                  )}
                   <span
                     role="status"
                     className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex"
                   >
-                    {workspace.localDocuments.loading ||
+                    {opening ||
+                    folderWorkspace.saving ||
                     workspace.pageSaveState === 'saving' ? (
                       <Spinner
                         className="size-3.5 animate-spin motion-reduce:animate-none"
@@ -659,27 +707,32 @@ export function NotesPage() {
                         aria-hidden="true"
                       />
                     )}
-                    {workspace.localDocuments.loading
-                      ? 'Abrindo documento…'
-                      : workspace.pageSaveState === 'saving'
-                        ? 'Salvando…'
-                        : error
-                          ? 'Não salvo'
-                          : isPdf
-                            ? 'PDF somente leitura'
-                            : workspace.pageSaveState === 'saved'
-                              ? 'Salvo agora'
-                              : workspace.localDocuments.has(activeNote.id)
-                                ? workspace.localDocuments.isDirty(
-                                    activeNote.id,
-                                  )
-                                  ? 'Alterações pendentes'
-                                  : 'Salvo no arquivo original'
-                                : isDraft
-                                  ? 'Não salvo'
-                                  : isSaved
-                                    ? 'Salvo neste navegador'
-                                    : 'Documento de exemplo'}
+                    {folderWorkspace.loading
+                      ? 'Abrindo pasta…'
+                      : workspace.localDocuments.loading
+                        ? 'Abrindo documento…'
+                        : workspace.pageSaveState === 'saving' ||
+                            folderWorkspace.saving
+                          ? 'Salvando…'
+                          : error || folderWorkspace.conflict
+                            ? 'Não salvo'
+                            : isPdf
+                              ? 'PDF somente leitura'
+                              : workspace.pageSaveState === 'saved'
+                                ? 'Salvo agora'
+                                : folderWorkspace.active && !isDraft
+                                  ? 'Salvo na pasta'
+                                  : workspace.localDocuments.has(activeNote.id)
+                                    ? workspace.localDocuments.isDirty(
+                                        activeNote.id,
+                                      )
+                                      ? 'Alterações pendentes'
+                                      : 'Salvo no arquivo original'
+                                    : isDraft
+                                      ? 'Não salvo'
+                                      : isSaved
+                                        ? 'Salvo neste navegador'
+                                        : 'Documento de exemplo'}
                   </span>
                   {!isPdf && (
                     <DocumentSearch
@@ -785,11 +838,17 @@ export function NotesPage() {
                     onClose={workspace.closeTab}
                   />
                 </div>
-                {!workspace.localDocuments.loading && !isPdf && (
+                {!opening && !isPdf && (
                   <SaveDestination
                     note={activeNote}
                     original={workspace.localDocuments.has(activeNote.id)}
                     temporary={isDraft || !isSaved}
+                    workspacePath={
+                      folderWorkspace.active
+                        ? (folderWorkspace.pathOf(activeNote.id) ??
+                          folderWorkspace.name)
+                        : undefined
+                    }
                     connectedPath={
                       workspace.localFolder.files.find(
                         (file) => file.noteId === activeNote.id,
@@ -804,6 +863,20 @@ export function NotesPage() {
                     disabled={workspace.localDocuments.busy}
                     onRestore={() => workspace.localDocuments.recover(true)}
                     onDiscard={() => workspace.localDocuments.recover(false)}
+                  />
+                )}
+                {folderWorkspace.conflict && (
+                  <DiskConflictAlert
+                    key={folderWorkspace.conflict.id}
+                    conflict={folderWorkspace.conflict}
+                    disabled={workspace.busy}
+                    onResolve={(choice) => {
+                      if (folderWorkspace.conflict)
+                        folderWorkspace.resolveConflict(
+                          folderWorkspace.conflict.id,
+                          choice,
+                        )
+                    }}
                   />
                 )}
                 {managementError && (
@@ -826,10 +899,10 @@ export function NotesPage() {
                       : undefined
                   }
                   tabIndex={-1}
-                  aria-busy={workspace.localDocuments.loading}
+                  aria-busy={opening}
                   className="flex min-h-0 flex-1 flex-col"
                 >
-                  {workspace.localDocuments.loading ? (
+                  {opening ? (
                     <DocumentLoading />
                   ) : workspace.isNoteLocked(activeNote.id) ? (
                     <LockedDocument
@@ -872,7 +945,11 @@ export function NotesPage() {
                           <span className="max-w-36 truncate sm:max-w-64">
                             {workspace.localDocuments.has(activeNote.id)
                               ? activeNote.sourcePath?.split(/[\\/]/).at(-1)
-                              : `${activeNote.title || 'Documento sem título'}.md`}
+                              : (folderWorkspace
+                                  .pathOf(activeNote.id)
+                                  ?.split('/')
+                                  .at(-1) ??
+                                `${activeNote.title || 'Documento sem título'}.md`)}
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -995,6 +1072,7 @@ export function NotesPage() {
                                     local={workspace.localDocuments.has(
                                       activeNote.id,
                                     )}
+                                    workspaceFolder={folderWorkspace.active}
                                     disabled={
                                       workspace.busy || protectedLocalReadOnly
                                     }
@@ -1185,15 +1263,20 @@ export function NotesPage() {
                       : 'Nova página'}
                   </DialogTitle>
                   <DialogDescription>
-                    {workspace.dialog === 'folder'
-                      ? workspace.selectedFolder
-                        ? `A nova pasta ficará dentro de ${location}. Escolha essa mesma pasta no computador como destino.`
-                        : 'Escolha onde a nova pasta será criada.'
-                      : `Local: ${location}. O conteúdo fica salvo neste navegador.`}
+                    {folderWorkspace.active
+                      ? workspace.dialog === 'folder'
+                        ? `A pasta será criada dentro de ${location}, também no computador.`
+                        : `Local: ${location}. O arquivo Markdown será criado nessa pasta do computador.`
+                      : workspace.dialog === 'folder'
+                        ? workspace.selectedFolder
+                          ? `A nova pasta ficará dentro de ${location}. Escolha essa mesma pasta no computador como destino.`
+                          : 'Escolha onde a nova pasta será criada.'
+                        : `Local: ${location}. O conteúdo fica salvo neste navegador.`}
                   </DialogDescription>
                 </DialogHeader>
                 {workspace.dialog === 'folder' ? (
                   <FolderForm
+                    workspaceFolder={folderWorkspace.active}
                     busy={workspace.busy}
                     computerError={workspace.localFolder.error}
                     computerSupported={!!window.showDirectoryPicker}
@@ -1317,6 +1400,7 @@ export function NotesPage() {
               <LocalFolderDialog
                 sync={workspace.localFolder}
                 note={activeNote}
+                folders={workspace.folders}
                 onClose={() => setPanel(null)}
                 onOpenNote={(id) => {
                   selectNote(id)

@@ -1,6 +1,6 @@
-import type { Note } from './types'
+import type { Note, WorkspaceFolder } from './types'
 import type { LocalDirectoryHandle, LocalFileHandle } from './workspace-files'
-import { parseMarkdownFile } from './workspace-files'
+import { markdownFilename, parseMarkdownFile } from './workspace-files'
 import { WorkspaceError } from './workspace-error'
 import { serializeProtectedMarkdown } from './document-protection'
 import { readPdfFile } from './pdf-files'
@@ -60,7 +60,8 @@ export function serializeLocalNote(note: Note, file?: SyncedFile): string {
   const raw = file?.baseline
   if (file && raw != null) {
     const parsed = parseMarkdownFile(file.path.split('/').at(-1)!, raw)
-    if (note.title === parsed.title) {
+    // An encrypted envelope is not a Markdown prefix to keep when protection is removed.
+    if (note.title === parsed.title && !parsed.protection) {
       return raw.slice(0, raw.length - parsed.content.length) + note.content
     }
   }
@@ -68,6 +69,28 @@ export function serializeLocalNote(note: Note, file?: SyncedFile): string {
   return note.title.trim()
     ? `# ${note.title}${eol}${eol}${note.content}`
     : note.content
+}
+
+/** Suggests a file path that mirrors the document's folders below the connected folder. */
+export function suggestedLocalPath(
+  note: Pick<Note, 'title' | 'folderId'>,
+  folders: WorkspaceFolder[],
+  rootFolderId: string | undefined,
+) {
+  const names: string[] = []
+  const visited = new Set<string>()
+  let id = note.folderId
+  while (id && id !== rootFolderId && !visited.has(id)) {
+    visited.add(id)
+    const folder = folders.find((item) => item.id === id)
+    if (!folder) break
+    names.unshift(folder.name)
+    id = folder.parentId
+  }
+  return [
+    ...(id === rootFolderId && rootFolderId ? names : []),
+    markdownFilename(note.title),
+  ].join('/')
 }
 
 export function validateLocalPath(path: string): string[] {

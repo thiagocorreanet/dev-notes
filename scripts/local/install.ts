@@ -11,7 +11,12 @@ const executable = join(directory, 'devnotes')
 const desktopId = 'devnotes-local.desktop'
 const desktopFile = join(data, 'applications', desktopId)
 const metadataFile = join(directory, 'associations.json')
-const mimeTypes = ['text/markdown', 'text/x-markdown', 'application/pdf']
+const mimeTypes = [
+  'text/markdown',
+  'text/x-markdown',
+  'application/pdf',
+  'inode/directory',
+]
 const defaultMimeTypes = ['text/markdown', 'text/x-markdown']
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
 const desktopQuote = (value: string) =>
@@ -68,7 +73,7 @@ async function main() {
         'Type=Application',
         'Version=1.0',
         'Name=DevNotes',
-        'Comment=Open Markdown and PDF documents in your browser',
+        'Comment=Open Markdown documents, PDFs, and workspace folders in your browser',
         `Exec=/bin/sh ${desktopQuote(executable)} %F`,
         'Terminal=false',
         'StartupNotify=false',
@@ -88,7 +93,7 @@ async function main() {
       for (const type of defaultMimeTypes) mime('default', desktopId, type)
     }
     console.log(
-      `Installed ${desktopFile}\nMarkdown and PDF files can now open in DevNotes through the default browser.`,
+      `Installed ${desktopFile}\nMarkdown files, PDFs, and folders can now open in DevNotes through the default browser.`,
     )
   }
   try {

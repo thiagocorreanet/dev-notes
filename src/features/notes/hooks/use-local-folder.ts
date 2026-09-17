@@ -518,8 +518,9 @@ export function useLocalFolder({
         throw error
       }
       let folderId = note.folderId
+      const importedFolders: WorkspaceFolder[] = []
       if (!old) {
-        const nextFolders: WorkspaceFolder[] = []
+        const nextFolders = importedFolders
         const parts = target.split('/').slice(0, -1)
         let parentId: string | undefined = connection.folderId
         for (const name of parts) {
@@ -562,7 +563,12 @@ export function useLocalFolder({
         resolution === 'local',
       )
       updateEntry({ ...entry, baseline: content, disk: content })
-      setMessage(`Arquivo "${target}" salvo na pasta.`)
+      const moved = folderId !== note.folderId
+      setMessage(
+        moved
+          ? `Arquivo "${target}" salvo na pasta. O documento foi movido para "${folderPath(folderId, [...folders, ...importedFolders])}" para ficar no mesmo lugar do arquivo.`
+          : `Arquivo "${target}" salvo na pasta.`,
+      )
     })
   }
 

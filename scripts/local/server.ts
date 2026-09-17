@@ -1,35 +1,37 @@
-import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { constants } from 'node:fs'
-import {
-  open,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  stat,
-  chmod,
-} from 'node:fs/promises'
-import { basename, dirname, extname, join, resolve, sep } from 'node:path'
+import { readFile, realpath } from 'node:fs/promises'
+import { basename, extname, resolve, sep } from 'node:path'
 import { CodexAppServerService, CodexServiceError } from './codex-service.ts'
 import type { CodexDocumentContext, CodexService } from './codex-service.ts'
-
-const MAX_BYTES = 2 * 1024 * 1024
-const MAX_PDF_BYTES = 50 * 1024 * 1024
-const digest = (raw: string) => createHash('sha256').update(raw).digest('hex')
-const secret = () => randomBytes(32).toString('hex')
-
-class HttpError extends Error {
-  readonly status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-  }
-}
+import {
+  errorCode,
+  HttpError,
+  MAX_BYTES,
+  readDocument,
+  readPdf,
+  replaceDocument,
+  secret,
+} from './files.ts'
+import {
+  authorizeWorkspaceRoot,
+  chooseDirectoryWithDialog,
+  copyWorkspaceEntry,
+  createWorkspaceDirectory,
+  deleteWorkspaceEntry,
+  MAX_HISTORY_BYTES,
+  moveWorkspaceEntry,
+  readWorkspaceFile,
+  scanWorkspace,
+  validFolderName,
+  workspacePdfPath,
+  writeWorkspaceFile,
+} from './workspace.ts'
+import type { DirectoryChooser } from './workspace.ts'
 
 async function jsonBody(
   request: IncomingMessage,
+  limit = MAX_BYTES * 6 + 4096,
 ): Promise<Record<string, unknown>> {
   if (!request.headers['content-type']?.startsWith('application/json'))
     throw new HttpError(415, 'Expected JSON.')
@@ -38,8 +40,7 @@ async function jsonBody(
   for await (const chunk of request) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string)
     size += bytes.length
-    if (size > MAX_BYTES * 6 + 4096)
-      throw new HttpError(413, 'Document is too large.')
+    if (size > limit) throw new HttpError(413, 'Document is too large.')
     chunks.push(bytes)
   }
   try {
@@ -52,60 +53,26 @@ async function jsonBody(
   }
 }
 
-async function readDocument(path: string) {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
-  try {
-    const info = await handle.stat()
-    if (!info.isFile())
-      throw new HttpError(400, 'Expected a regular Markdown file.')
-    if (info.size > MAX_BYTES)
-      throw new HttpError(413, 'Document exceeds 2 MB.')
-    const bytes = await handle.readFile()
-    if (bytes.length > MAX_BYTES)
-      throw new HttpError(413, 'Document exceeds 2 MB.')
-    let raw: string
-    try {
-      raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-        bytes,
-      )
-    } catch {
-      throw new HttpError(415, 'Document must use UTF-8.')
-    }
-    return { path, name: basename(path), raw, version: digest(raw) }
-  } finally {
-    await handle.close()
-  }
-}
-
-async function readPdf(path: string) {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
-  try {
-    const info = await handle.stat()
-    if (!info.isFile()) throw new HttpError(400, 'Expected a regular PDF file.')
-    if (info.size > MAX_PDF_BYTES)
-      throw new HttpError(413, 'PDF exceeds 50 MB.')
-    const bytes = await handle.readFile()
-    if (bytes.length > MAX_PDF_BYTES)
-      throw new HttpError(413, 'PDF exceeds 50 MB.')
-    if (!bytes.subarray(0, 1024).includes(Buffer.from('%PDF-')))
-      throw new HttpError(415, 'File is not a valid PDF.')
-    return { path, name: basename(path), bytes }
-  } finally {
-    await handle.close()
-  }
-}
-
 export async function startLocalServer(options: {
   dist: string
   port?: number
   token?: string
   codex?: CodexService
+  chooseDirectory?: DirectoryChooser
 }) {
   const token = options.token ?? secret()
   const allowed = new Set<string>()
-  const tickets = new Map<string, { path?: string; expires: number }>()
-  const sessions = new Map<string, { codexThreads: Set<string> }>()
+  const tickets = new Map<
+    string,
+    { path?: string; workspace?: string; expires: number }
+  >()
+  const sessions = new Map<
+    string,
+    { codexThreads: Set<string>; workspaces: Map<string, string> }
+  >()
   const writes = new Map<string, Promise<unknown>>()
+  const workspaceOperations = new Map<string, Promise<unknown>>()
+  const chooseDirectory = options.chooseDirectory ?? chooseDirectoryWithDialog
   const dist = await realpath(options.dist)
   const cookieName = `devnotes_${secret().slice(0, 12)}`
   let codex = options.codex
@@ -123,6 +90,26 @@ export async function startLocalServer(options: {
     else await readDocument(canonical)
     allowed.add(canonical)
     return canonical
+  }
+
+  /** Serializes changes per workspace so moves never interleave with writes to the same tree. */
+  function inWorkspace<T>(root: string, operation: () => Promise<T>) {
+    const next = (workspaceOperations.get(root) ?? Promise.resolve())
+      .catch(() => {})
+      .then(operation)
+    workspaceOperations.set(root, next)
+    return next.finally(() => {
+      if (workspaceOperations.get(root) === next)
+        workspaceOperations.delete(root)
+    })
+  }
+
+  function sessionFrom(request: IncomingMessage) {
+    const cookie = request.headers.cookie
+      ?.split('; ')
+      .find((value) => value.startsWith(`${cookieName}=`))
+      ?.slice(cookieName.length + 1)
+    return cookie ? sessions.get(cookie) : undefined
   }
 
   async function route(request: IncomingMessage, response: ServerResponse) {
@@ -157,14 +144,25 @@ export async function startLocalServer(options: {
       const body = await jsonBody(request)
       if (body.file !== undefined && typeof body.file !== 'string')
         throw new HttpError(400, 'Invalid file path.')
+      if (body.workspace !== undefined && typeof body.workspace !== 'string')
+        throw new HttpError(400, 'Invalid workspace path.')
       const path =
         typeof body.file === 'string'
           ? await authorizePath(body.file)
           : undefined
+      let workspace: string | undefined
+      if (typeof body.workspace === 'string') {
+        workspace = await realpath(resolve(body.workspace))
+        await authorizeWorkspaceRoot(workspace)
+      }
       for (const [key, value] of tickets)
         if (value.expires < Date.now()) tickets.delete(key)
       const ticket = secret()
-      tickets.set(ticket, { path, expires: Date.now() + 60_000 })
+      tickets.set(ticket, {
+        ...(path ? { path } : {}),
+        ...(workspace ? { workspace } : {}),
+        expires: Date.now() + 60_000,
+      })
       json({ url: `${origin}/launch?ticket=${ticket}` })
       return
     }
@@ -178,26 +176,32 @@ export async function startLocalServer(options: {
           401,
           'Launch link expired. Open the file again from your computer.',
         )
-      const session = secret()
-      sessions.set(session, { codexThreads: new Set() })
-      response.setHeader(
-        'Set-Cookie',
-        `${cookieName}=${session}; HttpOnly; SameSite=Strict; Path=/`,
-      )
+      // Reuse the browser's session so pages opened earlier keep their workspace access.
+      let session = sessionFrom(request)
+      if (!session) {
+        const key = secret()
+        session = { codexThreads: new Set(), workspaces: new Map() }
+        sessions.set(key, session)
+        response.setHeader(
+          'Set-Cookie',
+          `${cookieName}=${key}; HttpOnly; SameSite=Strict; Path=/`,
+        )
+      }
       const target = new URL('/', origin)
       target.searchParams.set('ws', '1')
       if (ticket.path) target.searchParams.set('file', ticket.path)
+      if (ticket.workspace) {
+        const id = secret().slice(0, 32)
+        session.workspaces.set(id, ticket.workspace)
+        target.searchParams.set('workspace', id)
+      }
       response.writeHead(303, { Location: target.href })
       response.end()
       return
     }
 
     if (url.pathname.startsWith('/api/')) {
-      const cookie = request.headers.cookie
-        ?.split('; ')
-        .find((value) => value.startsWith(`${cookieName}=`))
-        ?.slice(cookieName.length + 1)
-      const session = cookie ? sessions.get(cookie) : undefined
+      const session = sessionFrom(request)
       if (!session)
         throw new HttpError(401, 'Open DevNotes using the local launcher.')
       if (
@@ -276,6 +280,104 @@ export async function startLocalServer(options: {
         return
       }
 
+      if (url.pathname === '/api/workspace/choose' && method === 'POST') {
+        const body = await jsonBody(request)
+        if (body.mode !== 'open' && body.mode !== 'create')
+          throw new HttpError(400, 'Invalid workspace request.')
+        const name =
+          body.mode === 'create' ? validFolderName(body.name) : undefined
+        const chosen = await chooseDirectory(
+          name
+            ? `Escolha onde criar a pasta "${name}"`
+            : 'Escolha a pasta do workspace',
+        )
+        if (!chosen) {
+          response.statusCode = 204
+          response.end()
+          return
+        }
+        let root = await realpath(resolve(chosen))
+        await authorizeWorkspaceRoot(root)
+        if (name) {
+          await createWorkspaceDirectory(root, name).catch((error: unknown) => {
+            if (error instanceof HttpError && error.status === 409)
+              throw new HttpError(
+                409,
+                `Já existe uma pasta chamada "${name}" nesse local.`,
+              )
+            throw error
+          })
+          root = await realpath(resolve(root, name))
+        }
+        const id = secret().slice(0, 32)
+        session.workspaces.set(id, root)
+        json({ id })
+        return
+      }
+
+      if (url.pathname.startsWith('/api/workspace')) {
+        const id = request.headers['x-devnotes-workspace']
+        const root =
+          typeof id === 'string' ? session.workspaces.get(id) : undefined
+        if (!root)
+          throw new HttpError(
+            403,
+            'Open this workspace using the DevNotes launcher first.',
+          )
+        if (url.pathname === '/api/workspace' && method === 'GET') {
+          const snapshot = await inWorkspace(root, () => scanWorkspace(root))
+          json({ name: basename(root), path: root, ...snapshot })
+          return
+        }
+        if (url.pathname === '/api/workspace/file' && method === 'GET') {
+          json(await readWorkspaceFile(root, url.searchParams.get('path')))
+          return
+        }
+        if (url.pathname === '/api/workspace/pdf' && method === 'GET') {
+          const pdf = await readPdf(
+            await workspacePdfPath(root, url.searchParams.get('path')),
+          )
+          response.setHeader('Content-Type', 'application/pdf')
+          response.setHeader('Content-Length', String(pdf.bytes.length))
+          response.end(pdf.bytes)
+          return
+        }
+        if (method !== 'POST' && method !== 'PUT')
+          throw new HttpError(404, 'Unknown endpoint.')
+        const body = await jsonBody(request, MAX_HISTORY_BYTES * 2 + 4096)
+        const operations: Record<string, () => Promise<unknown>> = {
+          'PUT /api/workspace/file': async () => {
+            const result = await writeWorkspaceFile(
+              root,
+              body.path,
+              body.raw,
+              body.version,
+            )
+            return { version: result.version }
+          },
+          'POST /api/workspace/directory': async () => {
+            await createWorkspaceDirectory(root, body.path)
+            return {}
+          },
+          'POST /api/workspace/move': async () => {
+            await moveWorkspaceEntry(root, body.from, body.to)
+            return {}
+          },
+          'POST /api/workspace/copy': async () => {
+            await copyWorkspaceEntry(root, body.from, body.to)
+            return {}
+          },
+          'POST /api/workspace/delete': async () => {
+            await deleteWorkspaceEntry(root, body.path)
+            return {}
+          },
+        }
+        const operation = operations[`${method} ${url.pathname}`]
+        if (!operation) throw new HttpError(404, 'Unknown endpoint.')
+        json(await inWorkspace(root, operation))
+        return
+      }
+
       if (url.pathname === '/api/pdf' && method === 'GET') {
         const path = url.searchParams.get('file') ?? ''
         if (
@@ -319,42 +421,7 @@ export async function startLocalServer(options: {
         throw new HttpError(413, 'Document exceeds 2 MB.')
       const write = (writes.get(path) ?? Promise.resolve())
         .catch(() => {})
-        .then(async () => {
-          const previous = await readDocument(path)
-          if (previous.version !== version)
-            throw new HttpError(
-              409,
-              'The file changed on disk. Reload it before saving.',
-            )
-          if (raw === previous.raw) return previous
-          const info = await stat(path)
-          const temporary = join(
-            dirname(path),
-            `.${basename(path)}.${secret()}.tmp`,
-          )
-          try {
-            const handle = await open(temporary, 'wx', 0o600)
-            try {
-              await handle.writeFile(raw, 'utf8')
-              await handle.sync()
-            } finally {
-              await handle.close()
-            }
-            await chmod(temporary, info.mode & 0o777)
-            if (
-              (await realpath(path)) !== path ||
-              (await readDocument(path)).version !== version
-            )
-              throw new HttpError(
-                409,
-                'The file changed on disk. Reload it before saving.',
-              )
-            await rename(temporary, path)
-            return { path, name: basename(path), raw, version: digest(raw) }
-          } finally {
-            await rm(temporary, { force: true })
-          }
-        })
+        .then(() => replaceDocument(path, raw, version))
       writes.set(path, write)
       try {
         json(await write)
@@ -407,11 +474,11 @@ export async function startLocalServer(options: {
                   : error.code === 'cancelled'
                     ? 499
                     : 502
-            : error instanceof Error &&
-                'code' in error &&
-                error.code === 'ENOENT'
+            : errorCode(error) === 'ENOENT'
               ? 404
-              : 500
+              : errorCode(error) === 'ELOOP'
+                ? 400
+                : 500
       response.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
       })

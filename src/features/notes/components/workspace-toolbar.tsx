@@ -17,6 +17,7 @@ interface WorkspaceToolbarProps {
   busy: boolean
   canRefresh: boolean
   hasFolders: boolean
+  diskWorkspace?: boolean
   onNewDocument: () => void
   onNewPage: () => void
   onNewFolder: () => void
@@ -41,15 +42,19 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps) {
     },
     {
       label: 'Nova pasta',
-      description: 'Criar uma pasta e escolher onde salvá-la',
+      description: props.diskWorkspace
+        ? 'Criar uma pasta dentro da pasta selecionada'
+        : 'Criar uma pasta e escolher onde salvá-la',
       icon: FolderPlus,
       onClick: props.onNewFolder,
     },
     {
-      label: 'Recarregar arquivo',
-      description: props.canRefresh
-        ? 'Recarregar o arquivo original'
-        : 'Abra uma pasta e selecione um arquivo importado para recarregá-lo',
+      label: props.diskWorkspace ? 'Recarregar pasta' : 'Recarregar arquivo',
+      description: props.diskWorkspace
+        ? 'Ler de novo os arquivos da pasta do workspace'
+        : props.canRefresh
+          ? 'Recarregar o arquivo original'
+          : 'Abra uma pasta e selecione um arquivo importado para recarregá-lo',
       icon: RefreshCw,
       onClick: props.onRefresh,
       disabled: !props.canRefresh,
@@ -63,7 +68,9 @@ export function WorkspaceToolbar(props: WorkspaceToolbarProps) {
     },
     {
       label: 'Abrir pasta',
-      description: 'Importar documentos Markdown e PDF de uma pasta',
+      description: props.diskWorkspace
+        ? 'Copiar documentos Markdown de outra pasta para este workspace'
+        : 'Importar documentos Markdown e PDF de uma pasta',
       icon: FolderOpen,
       onClick: props.onOpenFolder,
     },

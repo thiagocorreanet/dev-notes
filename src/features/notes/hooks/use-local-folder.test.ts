@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { localFolderFixture } from '@/test/local-folder-fixture'
 import { useWorkspace } from './use-workspace'
+import { suggestedLocalPath } from '../local-folder'
 
 const original = '# Guide\n\n- [ ] Deliver'
 
@@ -51,6 +52,49 @@ describe('Connected workspace', () => {
     expect(
       result.current.documents.find((item) => item.id === note.id)?.folderId,
     ).toBe(loggiq.id)
+  })
+
+  it('keeps a document in its subfolder when saving it to the connected folder', async () => {
+    const { result, disk } = setup()
+    await act(() => result.current.localFolder.connect())
+    const root = result.current.localFolder.connection!.folderId
+    act(() => result.current.createFolder('Clientes'))
+    const clientes = result.current.folders.find(
+      (item) => item.name === 'Clientes',
+    )!
+    expect(clientes.parentId).toBe(root)
+    act(() => result.current.createPage('Contrato', 'Assinado'))
+    const note = result.current.documents.find(
+      (item) => item.title === 'Contrato',
+    )!
+    const path = suggestedLocalPath(
+      note,
+      result.current.folders,
+      result.current.localFolder.connection?.folderId,
+    )
+    expect(path).toBe('Clientes/Contrato.md')
+    await act(() => result.current.localFolder.save(note.id, path))
+    expect(disk.get('Clientes/Contrato.md')).toBe('# Contrato\n\nAssinado')
+    expect(
+      result.current.documents.find((item) => item.id === note.id)?.folderId,
+    ).toBe(clientes.id)
+    expect(result.current.localFolder.message).toBe(
+      'Arquivo "Clientes/Contrato.md" salvo na pasta.',
+    )
+
+    act(() => result.current.setSelectedFolder(clientes.id))
+    act(() => result.current.createPage('Proposta', 'Rascunho'))
+    const proposta = result.current.documents.find(
+      (item) => item.title === 'Proposta',
+    )!
+    await act(() => result.current.localFolder.save(proposta.id, 'Proposta.md'))
+    expect(
+      result.current.documents.find((item) => item.id === proposta.id)
+        ?.folderId,
+    ).toBe(root)
+    expect(result.current.localFolder.message).toContain(
+      'O documento foi movido para',
+    )
   })
 
   it('saves an existing workspace folder and its Markdown files on the computer', async () => {
